@@ -490,6 +490,311 @@ input:focus, textarea:focus { outline:none; border-color:var(--red) !important; 
 .empty-state p { color:var(--deep); font-size:.95rem; font-weight:700; margin-top:4px; }
 
 /* ────────────────────────── FOOTER ────────────────────────── */
+/* ────────────────────────── MINI CALENDAR BUTTON ────────────────────────── */
+.mini-cal-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 38px; height: 38px; border-radius: 10px; padding: 0;
+  background: #fff; border: 2px solid var(--red);
+  box-shadow: 0 2px 8px rgba(255,47,94,.25);
+  transition: all .15s;
+  margin-left: 2px;
+}
+.mini-cal-btn:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(255,47,94,.4); }
+.mini-cal-btn:active { transform: scale(.92); }
+.mini-cal-month {
+  font-size: .55rem; font-weight: 800; color: var(--red);
+  text-transform: uppercase; letter-spacing: .05em;
+  line-height: 1; padding: 3px 0 2px; width: 100%;
+  border-bottom: 1.5px solid var(--red);
+  background: rgba(255,47,94,.08);
+}
+.mini-cal-day {
+  font-family: 'Fredoka', sans-serif; font-weight: 700;
+  font-size: 1.1rem; color: var(--dark); line-height: 1;
+  padding-top: 3px;
+}
+
+/* ────────────────────────── CALENDAR OVERLAY ────────────────────────── */
+.cal-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(42,26,34,.55);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 12px;
+  animation: fadeUp .25s ease;
+  overflow-y: auto;
+}
+.cal-panel {
+  background: var(--card); border: 2px solid var(--red);
+  border-radius: 22px;
+  box-shadow: 0 10px 40px rgba(163,21,64,.35);
+  width: 100%; max-width: 460px;
+  max-height: 92vh; overflow-y: auto;
+  padding: 18px 16px;
+  animation: slideUp .3s ease;
+  position: relative;
+}
+.cal-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 12px; margin-bottom: 12px;
+}
+.cal-title-small {
+  font-size: .78rem; font-weight: 700; color: var(--deep);
+  text-transform: uppercase; letter-spacing: .06em; margin-bottom: 2px;
+}
+.cal-month-label {
+  font-family: 'Fredoka', sans-serif;
+  font-size: 1.6rem; font-weight: 700;
+  color: var(--red); line-height: 1;
+  text-transform: capitalize;
+  text-shadow: 0 2px 0 rgba(163,21,64,.12);
+}
+.cal-close {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--cream); color: var(--red);
+  font-size: 1rem; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--card-border);
+  flex-shrink: 0;
+}
+.cal-close:hover { background: var(--red); color: #fff; }
+
+.cal-nav {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 12px; gap: 8px;
+}
+.cal-nav-btn {
+  width: 40px; height: 40px; border-radius: 12px;
+  background: var(--cream); color: var(--red);
+  font-size: 1.5rem; font-weight: 700;
+  font-family: 'Fredoka', sans-serif;
+  border: 1.5px solid var(--card-border);
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+.cal-nav-btn:hover { background: var(--red); color: #fff; }
+.cal-today-btn {
+  flex: 1; padding: 10px;
+  background: var(--red); color: #fff;
+  border-radius: 12px; font-weight: 800;
+  font-size: .88rem;
+  box-shadow: 0 2px 8px rgba(255,47,94,.3);
+}
+.cal-today-btn:hover { transform: translateY(-1px); }
+
+.cal-grid {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px;
+  margin-bottom: 10px;
+}
+.cal-day-name {
+  text-align: center;
+  font-size: .72rem; font-weight: 800;
+  color: var(--muted);
+  padding: 4px 0;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.cal-cell {
+  aspect-ratio: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  padding-top: 6px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  transition: all .12s;
+  position: relative;
+  cursor: pointer;
+  min-height: 40px;
+}
+.cal-cell:not(.cal-empty):hover {
+  background: var(--cream);
+  border-color: var(--card-border);
+}
+.cal-cell.cal-empty { cursor: default; }
+.cal-cell-num {
+  font-family: 'Fredoka', sans-serif;
+  font-size: 1rem; font-weight: 600; color: var(--dark);
+  line-height: 1;
+}
+.cal-cell.weekend .cal-cell-num { color: var(--blush); }
+.cal-cell.holiday .cal-cell-num { color: var(--red); font-weight: 700; }
+.cal-cell.today {
+  background: rgba(255,47,94,.12);
+  border-color: var(--red);
+}
+.cal-cell.today .cal-cell-num { color: var(--red); font-weight: 800; }
+.cal-cell.selected {
+  background: var(--red);
+  border-color: var(--red);
+  box-shadow: 0 3px 10px rgba(255,47,94,.4);
+  transform: scale(1.05);
+}
+.cal-cell.selected .cal-cell-num { color: #fff; }
+.cal-dots {
+  display: flex; gap: 2px; margin-top: auto; padding-bottom: 4px;
+}
+.cal-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  display: inline-block;
+}
+.cal-dot.event   { background: var(--red); }
+.cal-dot.task    { background: var(--accent-gold); }
+.cal-dot.holiday { background: var(--deep-wine); }
+.cal-cell.selected .cal-dot { background: #fff !important; }
+
+.cal-legend {
+  display: flex; justify-content: center; gap: 12px;
+  font-size: .72rem; font-weight: 700; color: var(--muted);
+  padding: 8px 0 12px; border-bottom: 1px dashed var(--card-border);
+  margin-bottom: 12px;
+}
+.cal-legend > span { display: inline-flex; align-items: center; gap: 4px; }
+
+.cal-day-detail {
+  margin-top: 6px;
+}
+.cal-day-header {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  margin-bottom: 10px; flex-wrap: wrap;
+}
+.cal-day-label {
+  font-family: 'Fredoka', sans-serif;
+  font-size: 1.1rem; font-weight: 600; color: var(--dark);
+  text-transform: capitalize;
+}
+.cal-holiday-badge {
+  background: var(--deep-wine); color: #fff;
+  padding: 4px 10px; border-radius: 12px;
+  font-size: .72rem; font-weight: 800;
+  letter-spacing: .02em;
+}
+.cal-subsection { margin-bottom: 12px; }
+.cal-subsection-title {
+  font-size: .76rem; font-weight: 800; color: var(--deep);
+  text-transform: uppercase; letter-spacing: .05em;
+  margin-bottom: 6px;
+}
+.cal-empty-msg {
+  color: var(--muted); font-size: .85rem; font-weight: 600;
+  padding: 10px 12px; background: var(--cream);
+  border-radius: 10px; text-align: center;
+}
+.cal-task-item, .cal-event-item {
+  background: var(--cream); border-radius: 12px;
+  padding: 10px 12px; margin-bottom: 6px;
+  border-left: 3px solid var(--red);
+  display: flex; align-items: center; gap: 10px;
+  font-weight: 600;
+}
+.cal-task-item { border-left-color: var(--accent-gold); }
+.cal-task-time, .cal-event-time {
+  background: var(--red); color: #fff;
+  padding: 4px 10px; border-radius: 8px;
+  font-size: .78rem; font-weight: 800;
+  flex-shrink: 0; white-space: nowrap;
+}
+.cal-task-time { background: var(--accent-gold); color: var(--dark); }
+.cal-task-text { font-size: .9rem; color: var(--dark); flex: 1; min-width: 0; }
+.cal-event-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.cal-event-body { flex: 1; min-width: 0; }
+.cal-event-title { font-size: .92rem; color: var(--dark); font-weight: 700; }
+.cal-event-note { font-size: .78rem; color: var(--muted); font-weight: 500; margin-top: 2px; line-height: 1.3; }
+.cal-event-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.cal-event-actions button {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: transparent; font-size: .9rem;
+}
+.cal-event-actions button:hover { background: rgba(255,47,94,.1); }
+.cal-add-btn {
+  width: 100%; padding: 12px; margin-top: 6px;
+  background: linear-gradient(135deg, var(--red), var(--blush));
+  color: #fff; border-radius: 14px;
+  font-family: 'Fredoka', sans-serif;
+  font-size: 1rem; font-weight: 700;
+  box-shadow: 0 3px 10px rgba(255,47,94,.3);
+}
+.cal-add-btn:hover { transform: translateY(-1px); }
+
+/* Calendar form (new/edit event) */
+.cal-form-overlay {
+  position: fixed; inset: 0; z-index: 2100;
+  background: rgba(42,26,34,.6);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.cal-form {
+  background: var(--card); border: 2px solid var(--red);
+  border-radius: 20px; padding: 18px;
+  width: 100%; max-width: 400px;
+  box-shadow: 0 10px 40px rgba(163,21,64,.4);
+  animation: slideUp .25s ease;
+}
+.cal-form-title {
+  font-family: 'Fredoka', sans-serif;
+  font-size: 1.3rem; font-weight: 700; color: var(--red);
+  margin-bottom: 14px;
+}
+.cal-form-label {
+  display: block;
+  font-size: .78rem; font-weight: 800; color: var(--deep);
+  text-transform: uppercase; letter-spacing: .04em;
+  margin: 10px 0 6px;
+}
+.cal-form-input {
+  width: 100%;
+  padding: 12px; border-radius: 12px;
+  border: 2px solid var(--card-border);
+  background: var(--cream); color: var(--dark);
+  font-family: 'Nunito', sans-serif;
+  font-size: .95rem; font-weight: 600;
+  outline: none;
+  transition: all .15s;
+  box-sizing: border-box;
+}
+.cal-form-input:focus { border-color: var(--red); background: #fff; box-shadow: 0 0 0 3px rgba(255,47,94,.12); }
+textarea.cal-form-input { resize: vertical; min-height: 60px; }
+.cal-form-time {
+  display: flex; align-items: center; gap: 6px;
+}
+.cal-form-time select {
+  flex: 1;
+  padding: 10px; border-radius: 10px;
+  border: 2px solid var(--card-border);
+  background: var(--cream); color: var(--dark);
+  font-family: 'Fredoka', sans-serif;
+  font-size: 1rem; font-weight: 600;
+  text-align: center;
+}
+.cal-form-time span { font-size: 1.2rem; font-weight: 700; color: var(--red); }
+.cal-form-actions {
+  display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;
+}
+.cal-form-cancel, .cal-form-save {
+  padding: 10px 18px; border-radius: 12px;
+  font-family: 'Nunito', sans-serif; font-weight: 800;
+  font-size: .88rem; min-height: 42px;
+}
+.cal-form-cancel {
+  background: #fff; color: var(--muted);
+  border: 1.5px solid var(--card-border);
+}
+.cal-form-save {
+  background: linear-gradient(135deg, var(--red), var(--blush));
+  color: #fff; box-shadow: 0 3px 10px rgba(255,47,94,.3);
+}
+
+/* Dark mode adjustments for calendar */
+[data-theme="dark"] .cal-overlay { background: rgba(0,0,0,.7); }
+[data-theme="dark"] .cal-form-overlay { background: rgba(0,0,0,.75); }
+[data-theme="dark"] .cal-cell-num { color: var(--dark); }
+[data-theme="dark"] .cal-cell.today .cal-cell-num { color: var(--red); }
+[data-theme="dark"] .cal-cell.selected .cal-cell-num { color: #fff; }
+[data-theme="dark"] .cal-task-text, [data-theme="dark"] .cal-event-title { color: var(--dark); }
+[data-theme="dark"] .cal-day-label { color: var(--dark); }
+[data-theme="dark"] .mini-cal-btn { background: var(--cream); }
+[data-theme="dark"] .mini-cal-day { color: var(--dark); }
+[data-theme="dark"] .cal-form-input { color: var(--dark); color-scheme: dark; }
+[data-theme="dark"] .cal-form-time select { color: var(--dark); }
+
 .footer { text-align:center; font-size:.78rem; color:var(--blush); margin-top:32px; font-weight:700; letter-spacing:.04em;
   font-family:'Fredoka', 'Nunito', sans-serif;
   padding:8px; }
@@ -827,6 +1132,167 @@ const Theme = {
   },
 };
 Theme.init();
+
+/* ═══════════════════════════════════════════════════════════════
+   📅 CALENDAR MODULE — events, holidays, personal use
+   ═══════════════════════════════════════════════════════════════ */
+const MESI_IT = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+const GIORNI_BREVI = ['Lu','Ma','Me','Gi','Ve','Sa','Do'];
+
+function dateKey(y, m, d) {
+  return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+
+/**
+ * Calculate Italian national holidays (including Easter via Gauss algorithm)
+ */
+function getItalianHolidays(year) {
+  const holidays = {};
+  const fixed = [
+    [0,1,'Capodanno'],[0,6,'Epifania'],[3,25,'Liberazione'],
+    [4,1,'Festa Lavoratori'],[5,2,'Festa Repubblica'],[7,15,'Ferragosto'],
+    [10,1,'Ognissanti'],[11,8,'Immacolata'],[11,25,'Natale'],[11,26,'S. Stefano']
+  ];
+  fixed.forEach(([m,d,name]) => {
+    holidays[dateKey(year, m, d)] = name;
+  });
+  // Gauss Easter algorithm
+  const a = year%19, b = Math.floor(year/100), c = year%100;
+  const d2 = Math.floor(b/4), e = b%4;
+  const f = Math.floor((b+8)/25), g = Math.floor((b-f+1)/3);
+  const h = (19*a+b-d2-g+15)%30;
+  const i = Math.floor(c/4), k2 = c%4;
+  const l = (32+2*e+2*i-h-k2)%7;
+  const m2 = Math.floor((a+11*h+22*l)/451);
+  const month = Math.floor((h+l-7*m2+114)/31)-1;
+  const day = ((h+l-7*m2+114)%31)+1;
+  const easter = new Date(year, month, day);
+  holidays[dateKey(year, easter.getMonth(), easter.getDate())] = 'Pasqua';
+  const pasquetta = new Date(easter);
+  pasquetta.setDate(pasquetta.getDate()+1);
+  holidays[dateKey(year, pasquetta.getMonth(), pasquetta.getDate())] = 'Pasquetta';
+  return holidays;
+}
+
+const Calendar = {
+  open_: false,
+  year:  new Date().getFullYear(),
+  month: new Date().getMonth(),
+  selectedDate: null,       // "YYYY-MM-DD" string
+  events: {},               // { "YYYY-MM-DD": [{id, title, time, note}, ...] }
+  unsub: null,
+  // Form state
+  showForm: false,
+  formTitle: "",
+  formHour: "09",
+  formMin: "00",
+  formNote: "",
+  editingId: null,
+
+  open() {
+    this.open_ = true;
+    this.year = new Date().getFullYear();
+    this.month = new Date().getMonth();
+    // Today selected by default
+    const today = new Date();
+    this.selectedDate = dateKey(today.getFullYear(), today.getMonth(), today.getDate());
+    // Subscribe to events if not already
+    if (state.uid && !this.unsub) {
+      this.unsub = db.collection("users").doc(state.uid).collection("events")
+        .onSnapshot(snap => {
+          const grouped = {};
+          snap.docs.forEach(d => {
+            const ev = { id: d.id, ...d.data() };
+            if (!grouped[ev.date]) grouped[ev.date] = [];
+            grouped[ev.date].push(ev);
+          });
+          // Sort by time inside each day
+          Object.values(grouped).forEach(arr => {
+            arr.sort((a,b) => (a.time||"99:99").localeCompare(b.time||"99:99"));
+          });
+          this.events = grouped;
+          if (this.open_) render();
+        });
+    }
+  },
+  close() {
+    this.open_ = false;
+    this.showForm = false;
+  },
+  prev() {
+    if (--this.month < 0) { this.month = 11; this.year--; }
+  },
+  next() {
+    if (++this.month > 11) { this.month = 0; this.year++; }
+  },
+  today() {
+    const t = new Date();
+    this.year = t.getFullYear();
+    this.month = t.getMonth();
+    this.selectedDate = dateKey(t.getFullYear(), t.getMonth(), t.getDate());
+  },
+  selectDay(ds) {
+    this.selectedDate = ds;
+  },
+  openForm(evId = null) {
+    this.showForm = true;
+    this.editingId = evId;
+    if (evId) {
+      const arr = this.events[this.selectedDate] || [];
+      const ev = arr.find(e => e.id === evId);
+      if (ev) {
+        this.formTitle = ev.title;
+        this.formNote = ev.note || "";
+        if (ev.time) {
+          [this.formHour, this.formMin] = ev.time.split(":");
+        } else {
+          this.formHour = "09"; this.formMin = "00";
+        }
+      }
+    } else {
+      this.formTitle = "";
+      this.formNote = "";
+      this.formHour = "09";
+      this.formMin = "00";
+    }
+  },
+  closeForm() {
+    this.showForm = false;
+    this.editingId = null;
+  },
+  async saveEvent() {
+    const title = this.formTitle.trim();
+    if (!title) { showBubble("Scrivi un titolo per l'evento!"); return; }
+    const data = {
+      title,
+      date: this.selectedDate,
+      time: `${this.formHour}:${this.formMin}`,
+      note: this.formNote.trim() || null,
+      ts: Date.now(),
+    };
+    try {
+      const col = db.collection("users").doc(state.uid).collection("events");
+      if (this.editingId) {
+        await col.doc(this.editingId).update(data);
+        showBubble("Evento aggiornato!");
+      } else {
+        await col.add(data);
+        showBubble("Evento salvato!");
+      }
+      haptic(10);
+      this.closeForm();
+      render();
+    } catch(e) { console.error(e); showBubble(TETO.error); }
+  },
+  async deleteEvent(id) {
+    try {
+      await db.collection("users").doc(state.uid).collection("events").doc(id).delete();
+      showBubble("Evento cancellato!");
+      haptic(8);
+      render();
+    } catch(e) { console.error(e); showBubble(TETO.error); }
+  },
+};
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 
 /* ─── State ─── */
@@ -1405,6 +1871,10 @@ function render() {
           <button class="speaker-toggle ${TTS.enabled?'on':''}" onclick="TTS.toggle();render()" title="${TTS.enabled?'Spegni voce':'Accendi voce'}">
             ${TTS.enabled?ICONS.speaker:ICONS.speakerOff} ${TTS.enabled?'ON':'OFF'}
           </button>
+          <button class="mini-cal-btn" onclick="Calendar.open();render()" title="Calendario">
+            <div class="mini-cal-month">${["GEN","FEB","MAR","APR","MAG","GIU","LUG","AGO","SET","OTT","NOV","DIC"][new Date().getMonth()]}</div>
+            <div class="mini-cal-day">${new Date().getDate()}</div>
+          </button>
           <button class="settings-btn" onclick="state.showSettings=!state.showSettings;render()" title="Impostazioni">${ICONS.settings}</button>
         </div>
       </div>
@@ -1530,6 +2000,8 @@ function render() {
       <button onclick="undoDelete()">Annulla</button>
     </div>` : ""}
 
+    ${Calendar.open_ ? renderCalendar() : ""}
+
     <p class="footer">♪ TetoTask · made with 🍞 & ❤️ ♪</p>
   `;
 
@@ -1538,6 +2010,147 @@ function render() {
     const ta = document.getElementById("noteArea");
     if (ta) { ta.oninput = e => { state.noteVal = e.target.value; }; }
   }
+}
+
+function renderCalendar() {
+  const c = Calendar;
+  const holidays = getItalianHolidays(c.year);
+  // Build grid
+  const firstDay = new Date(c.year, c.month, 1).getDay(); // 0=Sun
+  const offset = (firstDay + 6) % 7; // Italian week: Mon=0
+  const daysInMonth = new Date(c.year, c.month+1, 0).getDate();
+  const today = new Date();
+  const todayKey = dateKey(today.getFullYear(), today.getMonth(), today.getDate());
+
+  const cells = [];
+  for (let i = 0; i < offset; i++) cells.push(`<div class="cal-cell cal-empty"></div>`);
+  for (let d = 1; d <= daysInMonth; d++) {
+    const k = dateKey(c.year, c.month, d);
+    const dow = new Date(c.year, c.month, d).getDay();
+    const isWeekend = (dow === 0 || dow === 6);
+    const isToday = (k === todayKey);
+    const isSelected = (k === c.selectedDate);
+    const isHoliday = !!holidays[k];
+    const hasEvents = !!(c.events[k] && c.events[k].length);
+    const hasTaskRem = state.tasks.some(t => t.reminderAt && !t.done &&
+      dateKey(new Date(t.reminderAt).getFullYear(), new Date(t.reminderAt).getMonth(), new Date(t.reminderAt).getDate()) === k);
+    const classes = ["cal-cell"];
+    if (isWeekend) classes.push("weekend");
+    if (isToday) classes.push("today");
+    if (isSelected) classes.push("selected");
+    if (isHoliday) classes.push("holiday");
+    cells.push(`<div class="${classes.join(' ')}" onclick="Calendar.selectDay('${k}');render()">
+      <div class="cal-cell-num">${d}</div>
+      <div class="cal-dots">
+        ${hasEvents ? '<span class="cal-dot event"></span>' : ''}
+        ${hasTaskRem ? '<span class="cal-dot task"></span>' : ''}
+        ${isHoliday ? '<span class="cal-dot holiday"></span>' : ''}
+      </div>
+    </div>`);
+  }
+
+  const selEvents = (c.events[c.selectedDate] || []);
+  const selHoliday = holidays[c.selectedDate];
+  const selTasks = state.tasks.filter(t => t.reminderAt && !t.done &&
+    dateKey(new Date(t.reminderAt).getFullYear(), new Date(t.reminderAt).getMonth(), new Date(t.reminderAt).getDate()) === c.selectedDate);
+
+  const [sy, sm, sd] = (c.selectedDate || "").split("-").map(Number);
+  const selDate = c.selectedDate ? new Date(sy, sm-1, sd) : null;
+  const selLabel = selDate ? selDate.toLocaleDateString("it-IT",{weekday:"long",day:"numeric",month:"long"}) : "";
+
+  const hourOpts = Array.from({length:24},(_,i)=>String(i).padStart(2,'0'))
+    .map(h=>`<option value="${h}" ${h===c.formHour?'selected':''}>${h}</option>`).join("");
+  const minOpts  = ["00","05","10","15","20","25","30","35","40","45","50","55"]
+    .map(m=>`<option value="${m}" ${m===c.formMin?'selected':''}>${m}</option>`).join("");
+
+  return `<div class="cal-overlay" onclick="if(event.target===this){Calendar.close();render()}">
+    <div class="cal-panel">
+      <div class="cal-header">
+        <div>
+          <div class="cal-title-small">📅 Calendario</div>
+          <div class="cal-month-label">${MESI_IT[c.month]} ${c.year}</div>
+        </div>
+        <button class="cal-close" onclick="Calendar.close();render()">✕</button>
+      </div>
+
+      <div class="cal-nav">
+        <button class="cal-nav-btn" onclick="Calendar.prev();render()">‹</button>
+        <button class="cal-today-btn" onclick="Calendar.today();render()">Oggi</button>
+        <button class="cal-nav-btn" onclick="Calendar.next();render()">›</button>
+      </div>
+
+      <div class="cal-grid">
+        ${GIORNI_BREVI.map(g=>`<div class="cal-day-name">${g}</div>`).join("")}
+        ${cells.join("")}
+      </div>
+
+      <div class="cal-legend">
+        <span><span class="cal-dot event"></span> Evento</span>
+        <span><span class="cal-dot task"></span> Task</span>
+        <span><span class="cal-dot holiday"></span> Festa</span>
+      </div>
+
+      ${c.selectedDate ? `<div class="cal-day-detail">
+        <div class="cal-day-header">
+          <div class="cal-day-label">${selLabel}</div>
+          ${selHoliday ? `<div class="cal-holiday-badge">🎊 ${esc(selHoliday)}</div>` : ''}
+        </div>
+
+        ${selTasks.length > 0 ? `<div class="cal-subsection">
+          <div class="cal-subsection-title">📝 Task con reminder</div>
+          ${selTasks.map(t => `<div class="cal-task-item">
+            <span class="cal-task-time">${new Date(t.reminderAt).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}</span>
+            <span class="cal-task-text">${esc(t.text)}</span>
+          </div>`).join("")}
+        </div>` : ''}
+
+        <div class="cal-subsection">
+          <div class="cal-subsection-title">📆 Eventi</div>
+          ${selEvents.length === 0 ? `<div class="cal-empty-msg">Nessun evento per questo giorno</div>` : ''}
+          ${selEvents.map(ev => `<div class="cal-event-item">
+            <div class="cal-event-main">
+              ${ev.time ? `<span class="cal-event-time">${ev.time}</span>` : ''}
+              <div class="cal-event-body">
+                <div class="cal-event-title">${esc(ev.title)}</div>
+                ${ev.note ? `<div class="cal-event-note">${esc(ev.note)}</div>` : ''}
+              </div>
+            </div>
+            <div class="cal-event-actions">
+              <button onclick="Calendar.openForm('${ev.id}');render()" title="Modifica">✏️</button>
+              <button onclick="Calendar.deleteEvent('${ev.id}')" title="Elimina">🗑</button>
+            </div>
+          </div>`).join("")}
+        </div>
+
+        <button class="cal-add-btn" onclick="Calendar.openForm();render()">
+          + Aggiungi evento
+        </button>
+      </div>` : ''}
+
+      ${c.showForm ? `<div class="cal-form-overlay" onclick="if(event.target===this){Calendar.closeForm();render()}">
+        <div class="cal-form">
+          <div class="cal-form-title">${c.editingId ? "Modifica evento" : "Nuovo evento"}</div>
+          <label class="cal-form-label">Titolo</label>
+          <input type="text" class="cal-form-input" value="${esc(c.formTitle)}"
+            oninput="Calendar.formTitle=this.value" placeholder="Es. Cena con Anna">
+          <label class="cal-form-label">Ora</label>
+          <div class="cal-form-time">
+            <select onchange="Calendar.formHour=this.value">${hourOpts}</select>
+            <span>:</span>
+            <select onchange="Calendar.formMin=this.value">${minOpts}</select>
+          </div>
+          <label class="cal-form-label">Note (opzionale)</label>
+          <textarea class="cal-form-input" rows="3"
+            oninput="Calendar.formNote=this.value"
+            placeholder="Dettagli, posto, altro...">${esc(c.formNote)}</textarea>
+          <div class="cal-form-actions">
+            <button class="cal-form-cancel" onclick="Calendar.closeForm();render()">Annulla</button>
+            <button class="cal-form-save" onclick="Calendar.saveEvent()">${c.editingId ? "Aggiorna" : "Salva"}</button>
+          </div>
+        </div>
+      </div>` : ''}
+    </div>
+  </div>`;
 }
 
 function esc(s) {
