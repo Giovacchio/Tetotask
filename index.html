@@ -490,6 +490,148 @@ input:focus, textarea:focus { outline:none; border-color:var(--red) !important; 
 .empty-state p { color:var(--deep); font-size:.95rem; font-weight:700; margin-top:4px; }
 
 /* ────────────────────────── FOOTER ────────────────────────── */
+/* ────────────────────────── LISTS ────────────────────────── */
+.mini-lists-btn {
+  width: 38px; height: 38px; border-radius: 10px;
+  background: #fff; border: 2px solid var(--red);
+  color: var(--red);
+  font-size: 1.1rem; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 8px rgba(255,47,94,.25);
+  transition: all .15s;
+  margin-left: 2px;
+}
+.mini-lists-btn:hover { transform: translateY(-1px); background: var(--red); color: #fff; }
+.mini-lists-btn:active { transform: scale(.92); }
+
+.lists-back {
+  padding: 8px 14px; border-radius: 10px;
+  background: var(--cream); color: var(--red);
+  font-weight: 800; font-size: .88rem;
+  border: 1.5px solid var(--card-border);
+}
+.lists-back:hover { background: var(--red); color: #fff; }
+
+.lists-title-row {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  padding: 8px 4px 10px; border-bottom: 1px dashed var(--card-border);
+  margin-bottom: 12px; gap: 8px; flex-wrap: wrap;
+}
+.lists-title {
+  font-family: 'Fredoka', sans-serif;
+  font-size: 1.5rem; font-weight: 700; color: var(--red);
+  line-height: 1.1;
+  text-shadow: 0 2px 0 rgba(163,21,64,.1);
+}
+.lists-title-meta {
+  font-size: .78rem; font-weight: 700; color: var(--deep);
+  background: var(--cream); padding: 4px 10px; border-radius: 10px;
+}
+
+.lists-actions-row {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.lists-action-btn {
+  padding: 8px 12px; border-radius: 10px;
+  background: var(--cream); color: var(--deep);
+  font-size: .78rem; font-weight: 700;
+  border: 1px solid var(--card-border);
+  min-height: 36px;
+}
+.lists-action-btn:hover { background: var(--red); color: #fff; }
+.lists-action-btn.danger { color: var(--red); }
+.lists-action-btn.danger:hover { background: var(--red); color: #fff; }
+
+.lists-add-row {
+  display: flex; gap: 8px; margin-bottom: 12px;
+}
+.lists-add-input {
+  flex: 1;
+  padding: 12px 14px; border-radius: 12px;
+  border: 2px solid var(--card-border);
+  background: var(--cream); color: var(--dark);
+  font-family: 'Nunito', sans-serif;
+  font-size: .95rem; font-weight: 600;
+  outline: none; min-height: 44px;
+  box-sizing: border-box;
+}
+.lists-add-input:focus {
+  border-color: var(--red); background: #fff;
+  box-shadow: 0 0 0 3px rgba(255,47,94,.12);
+}
+.lists-add-btn {
+  width: 44px; height: 44px; border-radius: 12px;
+  background: linear-gradient(135deg, var(--red), var(--blush));
+  color: #fff;
+  font-size: 1.4rem; font-weight: 700; line-height: 1;
+  box-shadow: 0 3px 10px rgba(255,47,94,.3);
+  flex-shrink: 0;
+}
+
+.lists-items {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.list-item {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--cream); border-radius: 12px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--red);
+  transition: all .15s;
+  animation: cardIn .25s ease;
+}
+.list-item:hover { box-shadow: 0 3px 10px rgba(255,47,94,.1); }
+.list-item.done { opacity: .5; border-left-color: var(--soft); }
+.list-bullet {
+  width: 24px; text-align: center;
+  color: var(--red); font-size: 1.3rem; font-weight: 900; line-height: 1;
+}
+.list-item-text {
+  flex: 1; min-width: 0;
+  font-size: .95rem; font-weight: 600; color: var(--dark);
+  word-wrap: break-word; line-height: 1.4;
+}
+.list-item-text.done-text { text-decoration: line-through; color: var(--muted); }
+
+.lists-done-divider {
+  font-size: .72rem; font-weight: 800; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .08em;
+  padding: 14px 4px 4px;
+}
+
+.lists-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px; margin-top: 14px;
+}
+.list-card {
+  padding: 14px; border-radius: 16px;
+  background: var(--cream);
+  border: 2px solid var(--card-border);
+  display: flex; align-items: center; gap: 10px; text-align: left;
+  transition: all .15s;
+  min-height: 72px;
+}
+.list-card:hover { transform: translateY(-2px); border-color: var(--red);
+  box-shadow: 0 5px 14px rgba(255,47,94,.18); }
+.list-card-emoji { font-size: 1.8rem; line-height: 1; flex-shrink: 0; }
+.list-card-body { flex: 1; min-width: 0; }
+.list-card-name {
+  font-family: 'Fredoka', sans-serif;
+  font-size: 1.02rem; font-weight: 600; color: var(--dark);
+  line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.list-card-meta {
+  font-size: .72rem; font-weight: 700; color: var(--muted);
+  margin-top: 2px;
+}
+
+/* Dark mode for lists */
+[data-theme="dark"] .list-item-text { color: var(--dark); }
+[data-theme="dark"] .list-card-name { color: var(--dark); }
+[data-theme="dark"] .lists-add-input { color: var(--dark); color-scheme: dark; }
+[data-theme="dark"] .mini-lists-btn { background: var(--cream); }
+
 /* ────────────────────────── MINI CALENDAR BUTTON ────────────────────────── */
 .mini-cal-btn {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -1134,14 +1276,319 @@ const Theme = {
 Theme.init();
 
 /* ═══════════════════════════════════════════════════════════════
+   🧠 INTENT DETECTION — voce unificata
+   Analizza una frase parlata e capisce cosa vuole fare l'utente.
+   Senza LLM: pattern + keywords per essere istantaneo e offline.
+   ═══════════════════════════════════════════════════════════════ */
+
+// Helper also used by Calendar
+function dateKey(y, m, d) {
+  return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+
+const LIST_EMOJIS = {
+  film: "🎬", serie: "🎬", "serie tv": "📺", tv: "📺",
+  spesa: "🛒", supermercato: "🛒", shopping: "🛍️",
+  libri: "📚", libro: "📚", lettura: "📖",
+  musica: "🎵", canzoni: "🎶", album: "💿", playlist: "🎧",
+  giochi: "🎮", videogiochi: "🎮",
+  ristoranti: "🍽️", ricette: "🍳", piatti: "🍝",
+  viaggi: "✈️", posti: "📍", luoghi: "🗺️",
+  regali: "🎁", compleanno: "🎂",
+  idee: "💡", progetti: "📋", sogni: "💭",
+  film_da_vedere: "🎬", libri_da_leggere: "📚",
+  anime: "🌸", manga: "📖",
+  workout: "💪", palestra: "🏋️", allenamento: "🏃",
+  viaggio: "✈️", vacanza: "🌴",
+};
+
+function guessListEmoji(name) {
+  const n = name.toLowerCase().trim();
+  if (LIST_EMOJIS[n]) return LIST_EMOJIS[n];
+  // Try partial matches
+  for (const [key, emoji] of Object.entries(LIST_EMOJIS)) {
+    if (n.includes(key) || key.includes(n)) return emoji;
+  }
+  return "📝";  // default
+}
+
+/**
+ * Parse Italian date/time expressions from a string.
+ * Returns { timestamp: ms, matched: "string matched", cleaned: "text without date" }
+ * or null if no date found.
+ */
+function parseDateTime(text) {
+  const now = new Date();
+  let ts = null;
+  let matched = "";
+  let cleaned = text;
+
+  // Helper to build timestamp
+  const buildDate = (daysAdd, hour, min) => {
+    const d = new Date();
+    d.setDate(d.getDate() + daysAdd);
+    d.setHours(hour || 9, min || 0, 0, 0);
+    return d.getTime();
+  };
+
+  // Match "alle HH(:MM)" or "alle HH e MM"
+  const timeMatch = text.match(/\balle\s+(\d{1,2})(?:[:\.e\s]+(\d{1,2}))?\b/i);
+  let hour = null, min = 0;
+  if (timeMatch) {
+    hour = parseInt(timeMatch[1]);
+    min = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+    matched = timeMatch[0];
+    cleaned = cleaned.replace(timeMatch[0], "").trim();
+  }
+
+  // Relative days
+  const dayPatterns = [
+    { rx: /\boggi\b/i,           days: 0 },
+    { rx: /\bstasera\b/i,        days: 0, defaultHour: 20 },
+    { rx: /\bstamattina\b/i,     days: 0, defaultHour: 9 },
+    { rx: /\bpomeriggio\b/i,     days: 0, defaultHour: 15 },
+    { rx: /\bdomani mattina\b/i, days: 1, defaultHour: 9 },
+    { rx: /\bdomani sera\b/i,    days: 1, defaultHour: 20 },
+    { rx: /\bdomani\b/i,         days: 1 },
+    { rx: /\bdopodomani\b/i,     days: 2 },
+    { rx: /\btra\s+(\d+)\s+giorn[io]\b/i, days: "N" },
+    { rx: /\bfra\s+(\d+)\s+giorn[io]\b/i, days: "N" },
+    { rx: /\btra\s+(\d+)\s+or[ae]\b/i, hoursAdd: "N" },
+    { rx: /\bfra\s+(\d+)\s+or[ae]\b/i, hoursAdd: "N" },
+    { rx: /\btra\s+(\d+)\s+minut[oi]\b/i, minAdd: "N" },
+    { rx: /\bfra\s+(\d+)\s+minut[oi]\b/i, minAdd: "N" },
+  ];
+  for (const p of dayPatterns) {
+    const m = text.match(p.rx);
+    if (m) {
+      if (p.hoursAdd === "N") {
+        ts = Date.now() + parseInt(m[1]) * 3600 * 1000;
+      } else if (p.minAdd === "N") {
+        ts = Date.now() + parseInt(m[1]) * 60 * 1000;
+      } else {
+        const days = p.days === "N" ? parseInt(m[1]) : p.days;
+        ts = buildDate(days, hour !== null ? hour : p.defaultHour, min);
+      }
+      matched = matched ? matched + " " + m[0] : m[0];
+      cleaned = cleaned.replace(m[0], "").trim();
+      break;
+    }
+  }
+
+  // Day names (lunedì, martedì, ...)
+  if (!ts) {
+    const dayNames = ["domenica","lunedì","martedì","mercoledì","giovedì","venerdì","sabato"];
+    const shortNames = ["domenica","lunedi","martedi","mercoledi","giovedi","venerdi","sabato"];
+    for (let i = 0; i < 7; i++) {
+      const rx = new RegExp(`\\b(${dayNames[i]}|${shortNames[i]})\\b`, "i");
+      const m = text.match(rx);
+      if (m) {
+        const currentDay = now.getDay();
+        let daysAhead = (i - currentDay + 7) % 7;
+        if (daysAhead === 0) daysAhead = 7;
+        ts = buildDate(daysAhead, hour !== null ? hour : 9, min);
+        matched = matched ? matched + " " + m[0] : m[0];
+        cleaned = cleaned.replace(m[0], "").trim();
+        break;
+      }
+    }
+  }
+
+  // If only time mentioned (no day), assume today (or tomorrow if past)
+  if (!ts && hour !== null) {
+    const d = new Date();
+    d.setHours(hour, min, 0, 0);
+    if (d.getTime() < Date.now()) d.setDate(d.getDate() + 1);
+    ts = d.getTime();
+  }
+
+  // Clean up stray words
+  cleaned = cleaned.replace(/\b(alle|ore|per|il|la|di|giorno|nel)\b/gi, " ")
+                   .replace(/\s+/g, " ").trim();
+  // Strip leading/trailing punctuation
+  cleaned = cleaned.replace(/^[,.\s]+|[,.\s]+$/g, "");
+
+  return ts ? { timestamp: ts, matched, cleaned } : null;
+}
+
+/**
+ * Detect user intent from a spoken/typed phrase.
+ * Returns { kind: "task"|"event"|"list_add"|"list_create"|"list_read"|"chat",
+ *           payload: ... }
+ */
+function detectIntent(text) {
+  const t = text.trim();
+  const lower = t.toLowerCase();
+
+  // Explicit prefixes win
+  if (/^(nota|note|nuova nota)[:\s]/i.test(t)) {
+    return { kind: "list_add_default", text: t.replace(/^(nota|note|nuova nota)[:\s]+/i, "").trim() };
+  }
+  if (/^(evento|appuntamento|impegno)[:\s]/i.test(t)) {
+    return parseEventIntent(t.replace(/^(evento|appuntamento|impegno)[:\s]+/i, ""));
+  }
+  if (/^(task|compito)[:\s]/i.test(t)) {
+    return { kind: "task", text: t.replace(/^(task|compito)[:\s]+/i, "").trim() };
+  }
+
+  // List CREATE: "crea lista X" / "nuova lista X"
+  let m;
+  if ((m = lower.match(/^(?:crea(?:mi)?|fai(?:mi)?|nuova)\s+(?:una\s+)?lista\s+(.+)/))) {
+    return { kind: "list_create", name: m[1].trim() };
+  }
+
+  // List ADD: "aggiungi X alla lista Y" / "metti X nella lista Y"
+  if ((m = lower.match(/^(?:aggiungi|metti|inserisci|salva)\s+(.+?)\s+(?:alla|nella|in)\s+lista\s+(.+)/))) {
+    return { kind: "list_add", item: m[1].trim(), listName: m[2].trim() };
+  }
+  // Shorter form: "aggiungi alla lista Y X"
+  if ((m = lower.match(/^(?:aggiungi|metti)\s+(?:alla|nella|in)\s+lista\s+(\S+)\s+(.+)/))) {
+    return { kind: "list_add", listName: m[1].trim(), item: m[2].trim() };
+  }
+
+  // List READ: "mostrami la lista X" / "cosa c'è nella lista X" / "leggi lista X"
+  if ((m = lower.match(/^(?:mostra(?:mi)?|apri|leggi(?:mi)?|fammi vedere)\s+(?:la\s+)?lista\s+(.+)/))) {
+    return { kind: "list_read", name: m[1].trim() };
+  }
+  if ((m = lower.match(/^cosa\s+c'?è?\s+(?:nella|sulla|in)\s+lista\s+(.+)/))) {
+    return { kind: "list_read", name: m[1].trim() };
+  }
+
+  // Conversational
+  if (/^(ciao|come stai|come va|buongiorno|buonasera|buonanotte|grazie|ehi teto)\b/i.test(lower)) {
+    return { kind: "chat", text: t };
+  }
+
+  // EVENT vs TASK heuristic:
+  // If there's a clear date/time AND keywords like "appuntamento/cena/visita/colloquio/riunione"
+  // → event. Otherwise → task (task can also have reminders).
+  const eventKeywords = /\b(appuntament[oi]|incontr[oi]|riunion[ei]|colloqui[oi]|cena|pranzo|aperitivo|visita|esame|partit[ae]|concerto|compleanno|matrimonio|battesimo|anniversario|festa|ciname|cinema|teatro|viaggio|volo|treno)\b/i;
+  const hasDate = parseDateTime(t);
+  if (eventKeywords.test(lower) && hasDate) {
+    return parseEventIntent(t);
+  }
+
+  // TASK with reminder: has date/time but is an action
+  if (hasDate) {
+    return { kind: "task", text: hasDate.cleaned || t, reminderAt: hasDate.timestamp };
+  }
+
+  // Default: task
+  return { kind: "task", text: t };
+}
+
+function parseEventIntent(text) {
+  const dt = parseDateTime(text);
+  if (dt) {
+    return { kind: "event", title: dt.cleaned || text, timestamp: dt.timestamp };
+  }
+  return { kind: "event", title: text, timestamp: null };
+}
+
+/**
+ * Execute a parsed intent. Returns a message for Teto to say back.
+ */
+async function executeIntent(intent) {
+  switch (intent.kind) {
+    case "task": {
+      const task = {
+        id: genId(), text: intent.text, category: state.cat,
+        note: "", done: false, ts: Date.now(),
+        reminderAt: intent.reminderAt || null,
+      };
+      await addTaskToDb(task);
+      if (intent.reminderAt) {
+        const when = new Date(intent.reminderAt).toLocaleString("it-IT", { weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" });
+        return `Ok! Task aggiunto con promemoria per ${when}`;
+      }
+      return pick(TETO.added);
+    }
+    case "event": {
+      if (!intent.timestamp) {
+        return "Quando sarebbe questo evento? Prova ad aggiungere una data";
+      }
+      const d = new Date(intent.timestamp);
+      const dateStr = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
+      const timeStr = `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+      await db.collection("users").doc(state.uid).collection("events").add({
+        title: intent.title,
+        date: dateStr,
+        time: timeStr,
+        note: null,
+        ts: Date.now(),
+      });
+      const when = d.toLocaleString("it-IT", { weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" });
+      return `Evento salvato! ${intent.title} — ${when}`;
+    }
+    case "list_create": {
+      const id = genId();
+      const emoji = guessListEmoji(intent.name);
+      await db.collection("users").doc(state.uid).collection("lists").doc(id).set({
+        name: intent.name, emoji, checkable: false, ts: Date.now(),
+      });
+      return `Lista "${intent.name}" creata ${emoji}`;
+    }
+    case "list_add": {
+      // Find list by name (case-insensitive)
+      const list = Lists.findByName(intent.listName);
+      if (!list) {
+        // Auto-create
+        const id = genId();
+        const emoji = guessListEmoji(intent.listName);
+        await db.collection("users").doc(state.uid).collection("lists").doc(id).set({
+          name: intent.listName, emoji, checkable: false, ts: Date.now(),
+        });
+        await Lists.addItem(id, intent.item);
+        return `Lista "${intent.listName}" creata e "${intent.item}" aggiunto!`;
+      }
+      await Lists.addItem(list.id, intent.item);
+      return `"${intent.item}" aggiunto a ${list.emoji} ${list.name}`;
+    }
+    case "list_add_default": {
+      // Generic note → goes to default "Note" list (create if missing)
+      let list = Lists.findByName("note");
+      if (!list) {
+        const id = genId();
+        await db.collection("users").doc(state.uid).collection("lists").doc(id).set({
+          name: "Note", emoji: "📝", checkable: false, ts: Date.now(),
+        });
+        list = { id, name: "Note", emoji: "📝" };
+      }
+      await Lists.addItem(list.id, intent.text);
+      return `Nota aggiunta a 📝 Note!`;
+    }
+    case "list_read": {
+      const list = Lists.findByName(intent.name);
+      if (!list) return `Non ho trovato la lista "${intent.name}"`;
+      Lists.open(list.id);
+      const items = Lists.items[list.id] || [];
+      if (items.length === 0) return `La lista ${list.emoji} ${list.name} è vuota`;
+      if (items.length <= 5) {
+        return `Nella lista ${list.name} ci sono: ${items.map(i=>i.text).join(", ")}`;
+      }
+      return `${list.emoji} ${list.name}: ${items.length} voci. L'ho aperta per te`;
+    }
+    case "chat": {
+      return conversationalReply(intent.text);
+    }
+  }
+}
+
+function conversationalReply(text) {
+  const t = text.toLowerCase();
+  if (/\b(ciao|ehi|hey)\b/.test(t)) return pick(["Ciao! Come posso aiutarti?", "Eccomi! Cosa c'è?", "Ciao! Dimmi tutto"]);
+  if (/\bcome (stai|va)\b/.test(t)) return pick(["Benissimo, grazie! E tu?", "Pronta come sempre! Tu come stai?", "Tutto bene! Tu?"]);
+  if (/\bgrazie\b/.test(t)) return pick(["Prego!", "Figurati!", "Sempre qui per te"]);
+  if (/\bbuongiorno\b/.test(t)) return "Buongiorno! Che giornata sarà?";
+  if (/\bbuonasera\b/.test(t)) return "Buonasera! Serata tranquilla?";
+  if (/\bbuonanotte\b/.test(t)) return "Buonanotte! Sogni d'oro";
+  return "Uhm, non sono sicura di aver capito. Prova con \"aggiungi...\", \"crea lista...\" o dimmi cosa devi fare!";
+}
+/* ═══════════════════════════════════════════════════════════════
    📅 CALENDAR MODULE — events, holidays, personal use
    ═══════════════════════════════════════════════════════════════ */
 const MESI_IT = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
 const GIORNI_BREVI = ['Lu','Ma','Me','Gi','Ve','Sa','Do'];
-
-function dateKey(y, m, d) {
-  return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-}
 
 /**
  * Calculate Italian national holidays (including Easter via Gauss algorithm)
@@ -1291,6 +1738,119 @@ const Calendar = {
       haptic(8);
       render();
     } catch(e) { console.error(e); showBubble(TETO.error); }
+  },
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   📝 LISTS MODULE — note e liste personali (film, spesa, ecc.)
+   ═══════════════════════════════════════════════════════════════ */
+const Lists = {
+  open_: false,
+  lists: [],                // [{ id, name, emoji, checkable, ts }]
+  items: {},                // { listId: [{ id, text, done, ts }] }
+  currentListId: null,
+  unsubLists: null,
+  unsubItems: {},           // { listId: unsub }
+
+  findByName(name) {
+    const n = name.toLowerCase().trim();
+    return this.lists.find(l => l.name.toLowerCase().trim() === n) ||
+           this.lists.find(l => l.name.toLowerCase().includes(n));
+  },
+  subscribe() {
+    if (!state.uid || this.unsubLists) return;
+    this.unsubLists = db.collection("users").doc(state.uid).collection("lists")
+      .orderBy("ts","desc").onSnapshot(snap => {
+        this.lists = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Subscribe to items of each list once
+        for (const l of this.lists) {
+          if (!this.unsubItems[l.id]) this.subscribeItems(l.id);
+        }
+        if (this.open_) render();
+      });
+  },
+  subscribeItems(listId) {
+    this.unsubItems[listId] = db.collection("users").doc(state.uid)
+      .collection("lists").doc(listId).collection("items")
+      .orderBy("ts","desc").onSnapshot(snap => {
+        this.items[listId] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        if (this.open_) render();
+      });
+  },
+  open(listId = null) {
+    this.open_ = true;
+    this.currentListId = listId;
+    this.subscribe();
+  },
+  close() {
+    this.open_ = false;
+    this.currentListId = null;
+  },
+  openList(id) {
+    this.currentListId = id;
+  },
+  back() {
+    this.currentListId = null;
+  },
+  async createList(name, checkable = false) {
+    const id = genId();
+    const emoji = guessListEmoji(name);
+    await db.collection("users").doc(state.uid).collection("lists").doc(id).set({
+      name, emoji, checkable, ts: Date.now(),
+    });
+    return id;
+  },
+  async deleteList(id) {
+    if (!confirm("Eliminare la lista? Anche le voci verranno cancellate.")) return;
+    // Delete all items first
+    const itemsSnap = await db.collection("users").doc(state.uid)
+      .collection("lists").doc(id).collection("items").get();
+    const batch = db.batch();
+    itemsSnap.forEach(doc => batch.delete(doc.ref));
+    batch.delete(db.collection("users").doc(state.uid).collection("lists").doc(id));
+    await batch.commit();
+    if (this.currentListId === id) this.currentListId = null;
+    showBubble("Lista eliminata");
+    haptic(10);
+    render();
+  },
+  async toggleCheckable(id, current) {
+    await db.collection("users").doc(state.uid).collection("lists").doc(id)
+      .update({ checkable: !current });
+  },
+  async renameList(id, newName) {
+    const emoji = guessListEmoji(newName);
+    await db.collection("users").doc(state.uid).collection("lists").doc(id)
+      .update({ name: newName, emoji });
+  },
+  async addItem(listId, text) {
+    if (!text.trim()) return;
+    await db.collection("users").doc(state.uid).collection("lists").doc(listId)
+      .collection("items").add({
+        text: text.trim(), done: false, ts: Date.now(),
+      });
+  },
+  async toggleItem(listId, itemId, done) {
+    await db.collection("users").doc(state.uid).collection("lists").doc(listId)
+      .collection("items").doc(itemId).update({ done: !done });
+    haptic(8);
+  },
+  async deleteItem(listId, itemId) {
+    await db.collection("users").doc(state.uid).collection("lists").doc(listId)
+      .collection("items").doc(itemId).delete();
+    haptic(6);
+  },
+  readAloud(listId) {
+    const list = this.lists.find(l => l.id === listId);
+    const items = this.items[listId] || [];
+    if (!list) return;
+    if (items.length === 0) {
+      TTS.speak(`La lista ${list.name} è vuota`, { force: true });
+      return;
+    }
+    const filtered = list.checkable ? items.filter(i=>!i.done) : items;
+    const text = `Lista ${list.name}. ${filtered.map((i,idx)=>`${idx+1}: ${i.text}`).join(". ")}`;
+    TTS.speak(text, { force: true });
   },
 };
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
@@ -1585,12 +2145,24 @@ function toggleMic() {
   recognition.lang = "it-IT";
   recognition.continuous = false;
   recognition.interimResults = false;
-  recognition.onresult = e => {
-    state.input = (state.input ? state.input+" " : "") + e.results[0][0].transcript;
+  recognition.onresult = async e => {
+    const transcript = e.results[0][0].transcript;
     state.listening = false;
+    state.input = "";  // we'll execute directly
     render();
     haptic(10);
-    setTimeout(() => document.getElementById("taskInput")?.focus(), 100);
+    // Parse intent and execute — Teto "capisce"
+    try {
+      const intent = detectIntent(transcript);
+      const reply = await executeIntent(intent);
+      if (reply) showBubble(reply);
+    } catch (err) {
+      console.error("Intent execution error:", err);
+      // Fallback: treat as plain task
+      state.input = transcript;
+      render();
+      setTimeout(() => document.getElementById("taskInput")?.focus(), 100);
+    }
   };
   recognition.onerror = () => { state.listening=false; render(); showBubble(TETO.voiceErr, {silent:true}); };
   recognition.onend   = () => { state.listening=false; render(); };
@@ -1607,21 +2179,39 @@ function toggleMic() {
 }
 
 /* ─── Actions ─── */
-function addTask() {
+async function addTask() {
   const text = state.input.trim();
   if (!text) return;
-  const task = {
-    id:genId(), text, category:state.cat, note:"", done:false, ts:Date.now(),
-    reminderAt: state.reminderAt || null,
-  };
-  const hadReminder = !!state.reminderAt;
+  // If user explicitly set a reminder via picker, treat as plain task w/ reminder
+  if (state.reminderAt) {
+    const task = {
+      id:genId(), text, category:state.cat, note:"", done:false, ts:Date.now(),
+      reminderAt: state.reminderAt,
+    };
+    state.input = "";
+    state.reminderAt = null;
+    state.showReminderPicker = false;
+    addTaskToDb(task);
+    showBubble(TETO.remSet);
+    haptic(12);
+    requestNotifPermission();
+    return;
+  }
+  // Otherwise route through intent parser so typing behaves like voice
   state.input = "";
-  state.reminderAt = null;
-  state.showReminderPicker = false;
-  addTaskToDb(task);
-  showBubble(hadReminder ? TETO.remSet : pick(TETO.added));
-  haptic(12);
-  if (hadReminder) requestNotifPermission();
+  render();
+  try {
+    const intent = detectIntent(text);
+    const reply = await executeIntent(intent);
+    if (reply) showBubble(reply);
+    haptic(10);
+  } catch (err) {
+    console.error("Intent error:", err);
+    // Fallback: plain task
+    const task = { id:genId(), text, category:state.cat, note:"", done:false, ts:Date.now(), reminderAt:null };
+    addTaskToDb(task);
+    showBubble(pick(TETO.added));
+  }
 }
 
 function toggleDone(id) {
@@ -1875,6 +2465,7 @@ function render() {
             <div class="mini-cal-month">${["GEN","FEB","MAR","APR","MAG","GIU","LUG","AGO","SET","OTT","NOV","DIC"][new Date().getMonth()]}</div>
             <div class="mini-cal-day">${new Date().getDate()}</div>
           </button>
+          <button class="mini-lists-btn" onclick="Lists.open();render()" title="Note e liste">📝</button>
           <button class="settings-btn" onclick="state.showSettings=!state.showSettings;render()" title="Impostazioni">${ICONS.settings}</button>
         </div>
       </div>
@@ -1956,7 +2547,7 @@ function render() {
           ${s.listening?'<span class="pulse-ring"></span>':""}
         </button>
         <input id="taskInput" class="text-input" type="text" value="${esc(s.input)}"
-          placeholder="Parla o scrivi..."
+          placeholder="Parla o scrivi: task, evento, nota..."
           oninput="state.input=this.value"
           onkeydown="if(event.key==='Enter')addTask()">
         <button class="send-btn" onclick="addTask()" ${s.input.trim()?"":'disabled'}>${ICONS.send}</button>
@@ -2001,6 +2592,7 @@ function render() {
     </div>` : ""}
 
     ${Calendar.open_ ? renderCalendar() : ""}
+    ${Lists.open_ ? renderLists() : ""}
 
     <p class="footer">♪ TetoTask · made with 🍞 & ❤️ ♪</p>
   `;
@@ -2153,6 +2745,100 @@ function renderCalendar() {
   </div>`;
 }
 
+function renderLists() {
+  const L = Lists;
+  // Header
+  if (L.currentListId) {
+    // List detail view
+    const list = L.lists.find(x => x.id === L.currentListId);
+    if (!list) return "";
+    const items = L.items[list.id] || [];
+    const activeCount = list.checkable ? items.filter(i=>!i.done).length : items.length;
+    const doneItems = list.checkable ? items.filter(i=>i.done) : [];
+    const pendingItems = list.checkable ? items.filter(i=>!i.done) : items;
+
+    return `<div class="cal-overlay" onclick="if(event.target===this){Lists.close();render()}">
+      <div class="cal-panel">
+        <div class="cal-header">
+          <button class="lists-back" onclick="Lists.back();render()">‹ Liste</button>
+          <button class="cal-close" onclick="Lists.close();render()">✕</button>
+        </div>
+        <div class="lists-title-row">
+          <div class="lists-title">${list.emoji} ${esc(list.name)}</div>
+          <div class="lists-title-meta">${activeCount} ${activeCount===1?"voce":"voci"}</div>
+        </div>
+
+        <div class="lists-actions-row">
+          <button class="lists-action-btn" onclick="Lists.readAloud('${list.id}')" title="Leggi ad alta voce">🔊 Leggi</button>
+          <button class="lists-action-btn" onclick="const n=prompt('Nuovo nome:',${JSON.stringify(list.name).replace(/"/g,'&quot;')}); if(n&&n.trim())Lists.renameList('${list.id}',n.trim())" title="Rinomina">✏️</button>
+          <button class="lists-action-btn" onclick="Lists.toggleCheckable('${list.id}',${list.checkable})" title="Cambia modo">
+            ${list.checkable ? "☑️ Spuntabile" : "📌 Sempre"}
+          </button>
+          <button class="lists-action-btn danger" onclick="Lists.deleteList('${list.id}')" title="Elimina lista">🗑</button>
+        </div>
+
+        <form class="lists-add-row" onsubmit="event.preventDefault();const i=document.getElementById('listAddInput');if(i.value.trim()){Lists.addItem('${list.id}',i.value);i.value='';}">
+          <input id="listAddInput" class="lists-add-input" type="text" placeholder="Aggiungi voce..." autocomplete="off">
+          <button type="submit" class="lists-add-btn">+</button>
+        </form>
+
+        <div class="lists-items">
+          ${pendingItems.length === 0 && doneItems.length === 0 ? `<div class="cal-empty-msg">Lista vuota. Aggiungi qualcosa!</div>` : ""}
+          ${pendingItems.map(it => `<div class="list-item ${it.done?'done':''}">
+            ${list.checkable ? `<button class="check-btn ${it.done?'checked':''}" onclick="Lists.toggleItem('${list.id}','${it.id}',${it.done})">${it.done?'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>':''}</button>` : '<span class="list-bullet">•</span>'}
+            <span class="list-item-text">${esc(it.text)}</span>
+            <button class="icon-btn del" onclick="Lists.deleteItem('${list.id}','${it.id}')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>`).join("")}
+          ${doneItems.length > 0 ? `<div class="lists-done-divider">Completate</div>` : ""}
+          ${doneItems.map(it => `<div class="list-item done">
+            <button class="check-btn checked" onclick="Lists.toggleItem('${list.id}','${it.id}',${it.done})">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+            <span class="list-item-text done-text">${esc(it.text)}</span>
+            <button class="icon-btn del" onclick="Lists.deleteItem('${list.id}','${it.id}')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>`).join("")}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // Lists overview
+  return `<div class="cal-overlay" onclick="if(event.target===this){Lists.close();render()}">
+    <div class="cal-panel">
+      <div class="cal-header">
+        <div>
+          <div class="cal-title-small">📝 Note e liste</div>
+          <div class="cal-month-label">Le mie liste</div>
+        </div>
+        <button class="cal-close" onclick="Lists.close();render()">✕</button>
+      </div>
+
+      <button class="cal-add-btn" onclick="const n=prompt('Nome della lista:'); if(n&&n.trim()){const c=confirm('Le voci si possono spuntare come fatte?');Lists.createList(n.trim(),c).then(id=>{Lists.openList(id);render()})}">
+        + Nuova lista
+      </button>
+
+      <div class="lists-grid">
+        ${L.lists.length === 0 ? `<div class="cal-empty-msg" style="margin-top:16px">Non hai ancora liste.<br>Creane una o dì: "crea lista film"</div>` : ""}
+        ${L.lists.map(list => {
+          const items = L.items[list.id] || [];
+          const activeCount = list.checkable ? items.filter(i=>!i.done).length : items.length;
+          return `<button class="list-card" onclick="Lists.openList('${list.id}');render()">
+            <div class="list-card-emoji">${list.emoji}</div>
+            <div class="list-card-body">
+              <div class="list-card-name">${esc(list.name)}</div>
+              <div class="list-card-meta">${activeCount} ${activeCount===1?"voce":"voci"}${list.checkable?" · ☑":""}</div>
+            </div>
+          </button>`;
+        }).join("")}
+      </div>
+    </div>
+  </div>`;
+}
+
 function esc(s) {
   const d = document.createElement("div");
   d.textContent = s;
@@ -2222,7 +2908,16 @@ auth.signInAnonymously()
     db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 
     listenToTasks();
+    Lists.subscribe();  // pre-load lists so voice intents can find them
     render();
+
+    // First-time onboarding: teach the user what voice can do
+    if (!localStorage.getItem("teto-seen-onboarding")) {
+      setTimeout(() => {
+        showBubble("Parlami! Puoi dirmi cose come: 'comprare pane', 'domani alle 15 dentista', 'crea lista film'~ ♪");
+        localStorage.setItem("teto-seen-onboarding", "1");
+      }, 1500);
+    }
 
     // Kick off proactive questions if enabled
     if (state.proactiveEnabled) scheduleProactive();
