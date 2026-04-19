@@ -202,14 +202,68 @@ input:focus, textarea:focus { outline:none; border-color:var(--red) !important; 
   padding:12px 8px 12px 18px; border-radius:14px;
   display:flex; align-items:center; gap:10px;
   box-shadow:0 6px 24px rgba(0,0,0,.2); z-index:1000;
-  font-size:.88rem; font-weight:600; animation:slideUp .3s ease;
+  font-size:.88rem; font-weight:600; animation:slideUpCentered .3s ease;
   max-width:92vw;
 }
 .undo-snack button {
   background:var(--red); color:#fff; padding:8px 16px; border-radius:10px;
   font-size:.82rem; font-weight:800; min-height:36px;
 }
-@keyframes slideUp { 0%{opacity:0;transform:translate(-50%,20px)} 100%{opacity:1;transform:translate(-50%,0)} }
+@keyframes slideUpCentered { 0%{opacity:0;transform:translate(-50%,20px)} 100%{opacity:1;transform:translate(-50%,0)} }
+@keyframes panelIn { 0%{opacity:0;transform:translateY(16px) scale(.98)} 100%{opacity:1;transform:translateY(0) scale(1)} }
+
+/* Panel animations only play on first appearance, not on every re-render.
+   We achieve this by adding .no-animate class to the panel after first frame
+   via JS (see applyPanelAnimationOnce). */
+.cal-panel.no-animate,
+.cal-form.no-animate,
+.help-panel.no-animate { animation: none !important; }
+
+/* ────────────────────────── HELP PANEL ────────────────────────── */
+.help-panel {
+  max-width: 500px;
+}
+.help-intro {
+  background: var(--cream); color: var(--deep);
+  padding: 12px 14px; border-radius: 12px;
+  font-size: .88rem; font-weight: 600;
+  line-height: 1.5; margin-bottom: 14px;
+  border-left: 3px solid var(--red);
+}
+.help-group {
+  margin-bottom: 16px;
+}
+.help-group-title {
+  font-family: 'Fredoka', sans-serif;
+  font-size: 1.05rem; font-weight: 600; color: var(--red);
+  margin-bottom: 8px; padding-bottom: 6px;
+  border-bottom: 1.5px dashed var(--card-border);
+}
+.help-cmd {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--card-border);
+}
+.help-cmd:last-child { border-bottom: none; }
+.help-cmd-say {
+  font-size: .9rem; font-weight: 700; color: var(--dark);
+  margin-bottom: 2px;
+  font-style: italic;
+}
+.help-cmd-does {
+  font-size: .78rem; color: var(--muted); font-weight: 600;
+  line-height: 1.35;
+}
+.help-footer {
+  background: rgba(255,47,94,.08);
+  padding: 12px 14px; border-radius: 12px;
+  font-size: .82rem; font-weight: 600;
+  color: var(--deep); line-height: 1.5;
+  margin-top: 8px;
+}
+.help-footer b { color: var(--red); font-weight: 800; }
+
+[data-theme="dark"] .help-cmd-say { color: var(--dark); }
+[data-theme="dark"] .help-intro, [data-theme="dark"] .help-footer { color: var(--dark); }
 
 /* Inline text editing */
 .task-edit-input {
@@ -673,7 +727,7 @@ input:focus, textarea:focus { outline:none; border-color:var(--red) !important; 
   width: 100%; max-width: 460px;
   max-height: 92vh; overflow-y: auto;
   padding: 18px 16px;
-  animation: slideUp .3s ease;
+  animation: panelIn .3s ease;
   position: relative;
 }
 .cal-header {
@@ -868,7 +922,7 @@ input:focus, textarea:focus { outline:none; border-color:var(--red) !important; 
   border-radius: 20px; padding: 18px;
   width: 100%; max-width: 400px;
   box-shadow: 0 10px 40px rgba(163,21,64,.4);
-  animation: slideUp .25s ease;
+  animation: panelIn .25s ease;
 }
 .cal-form-title {
   font-family: 'Fredoka', sans-serif;
@@ -1420,6 +1474,11 @@ function detectIntent(text) {
   const t = text.trim();
   const lower = t.toLowerCase();
 
+  // "Annulla" — undo last delete
+  if (/^\b(annulla|ripristina|recupera|ritenta)\b/i.test(lower)) {
+    return { kind: "undo" };
+  }
+
   // Explicit prefixes win
   if (/^(nota|note|nuova nota)[:\s]/i.test(t)) {
     return { kind: "list_add_default", text: t.replace(/^(nota|note|nuova nota)[:\s]+/i, "").trim() };
@@ -1453,6 +1512,38 @@ function detectIntent(text) {
   if ((m = lower.match(/^cosa\s+c'?è?\s+(?:nella|sulla|in)\s+lista\s+(.+)/))) {
     return { kind: "list_read", name: m[1].trim() };
   }
+
+  // HELP command — show voice commands
+  if (/^\b(aiuto|help|cosa puoi fare|comandi|che comandi)\b/i.test(lower) ||
+      /^\b(non so cosa dire|cosa dire|cosa dire?)\b/i.test(lower)) {
+    return { kind: "help" };
+  }
+
+  // "Cosa devo fare oggi / questa settimana" → summary
+  if (/^(cosa (devo|ho da) fare|cos'ho da fare|che devo fare|agenda|riassunto)\s*(oggi|stamattina|stasera|questa settimana|domani)?\b/i.test(lower)) {
+    const when = lower.match(/\b(oggi|stamattina|stasera|domani|questa settimana)\b/);
+    return { kind: "summary", when: when ? when[1] : "oggi" };
+  }
+
+  // "Completa/fatto/segna fatto X" → complete task by text match
+  if ((m = lower.match(/^(?:completa|fatto|segna (?:come )?fatto|segnare fatto|marca fatto)\s+(.+)/))) {
+    return { kind: "complete_task", query: m[1].trim() };
+  }
+
+  // "Cancella/elimina task X" → delete task
+  if ((m = lower.match(/^(?:cancella|elimina|rimuovi)\s+(?:(?:il |la |lo )?task\s+)?(.+)/))) {
+    return { kind: "delete_task", query: m[1].trim() };
+  }
+
+  // "Apri calendario / apri liste / apri impostazioni"
+  if (/^\bapri\s+(?:il\s+)?calendario\b/i.test(lower))    return { kind: "open", target: "calendar" };
+  if (/^\bapri\s+(?:le\s+)?liste\b/i.test(lower))         return { kind: "open", target: "lists" };
+  if (/^\bapri\s+(?:le\s+)?impostazioni\b/i.test(lower))  return { kind: "open", target: "settings" };
+  if (/^\bchiudi\b/i.test(lower))                          return { kind: "close" };
+
+  // "Che ora è?" / "Che giorno è?"
+  if (/^\bche\s+or[ae]\b/i.test(lower))    return { kind: "time_info" };
+  if (/^\bche\s+giorno\b/i.test(lower))    return { kind: "date_info" };
 
   // Conversational
   if (/^(ciao|come stai|come va|buongiorno|buonasera|buonanotte|grazie|ehi teto)\b/i.test(lower)) {
@@ -1490,6 +1581,13 @@ function parseEventIntent(text) {
  */
 async function executeIntent(intent) {
   switch (intent.kind) {
+    case "undo": {
+      if (state.undoTask) {
+        undoDelete();
+        return "";  // undoDelete already shows its own bubble
+      }
+      return "Non c'è niente da annullare";
+    }
     case "task": {
       const task = {
         id: genId(), text: intent.text, category: state.cat,
@@ -1570,6 +1668,82 @@ async function executeIntent(intent) {
     }
     case "chat": {
       return conversationalReply(intent.text);
+    }
+    case "help": {
+      state.showHelp = true;
+      render();
+      return "Ecco cosa posso fare! 🍞";
+    }
+    case "summary": {
+      const now = new Date();
+      const today0 = new Date(now); today0.setHours(0,0,0,0);
+      const tomorrow0 = new Date(today0); tomorrow0.setDate(tomorrow0.getDate()+1);
+      const weekEnd = new Date(today0); weekEnd.setDate(weekEnd.getDate()+7);
+      let start, end, label;
+      if (intent.when === "domani") {
+        start = tomorrow0.getTime();
+        end = start + 86400000;
+        label = "Domani";
+      } else if (intent.when === "questa settimana") {
+        start = today0.getTime();
+        end = weekEnd.getTime();
+        label = "Questa settimana";
+      } else {
+        start = today0.getTime();
+        end = tomorrow0.getTime();
+        label = intent.when === "stasera" ? "Stasera" :
+                intent.when === "stamattina" ? "Stamattina" : "Oggi";
+      }
+      const pendingTasks = state.tasks.filter(t => !t.done &&
+        (t.reminderAt ? (t.reminderAt >= start && t.reminderAt < end) : intent.when === "oggi"));
+      const totalPending = state.tasks.filter(t => !t.done).length;
+      if (pendingTasks.length === 0 && totalPending === 0) {
+        return `${label} sei libero! Non hai task da fare.`;
+      }
+      if (pendingTasks.length === 0) {
+        return `${label} non hai task con promemoria. Hai ${totalPending} task in generale.`;
+      }
+      const preview = pendingTasks.slice(0,3).map(t=>t.text).join(", ");
+      const rest = pendingTasks.length > 3 ? ` e altri ${pendingTasks.length-3}` : "";
+      return `${label} hai ${pendingTasks.length} ${pendingTasks.length===1?"task":"task"}: ${preview}${rest}`;
+    }
+    case "complete_task": {
+      const q = intent.query.toLowerCase();
+      const match = state.tasks.find(t => !t.done && t.text.toLowerCase().includes(q));
+      if (!match) return `Non trovo nessun task che corrisponda a "${intent.query}"`;
+      await updateTaskInDb(match.id, { done: true });
+      return `Fatto! "${match.text}" segnato come completato 🌟`;
+    }
+    case "delete_task": {
+      const q = intent.query.toLowerCase();
+      const match = state.tasks.find(t => t.text.toLowerCase().includes(q));
+      if (!match) return `Non trovo nessun task che corrisponda a "${intent.query}"`;
+      state.undoTask = { ...match };
+      await deleteTaskFromDb(match.id);
+      clearTimeout(undoTimer);
+      undoTimer = setTimeout(() => { state.undoTask = null; render(); }, 6000);
+      render();
+      return `Cancellato "${match.text}". Dì "annulla" o tocca il banner per recuperarlo`;
+    }
+    case "open": {
+      if (intent.target === "calendar") { Calendar.open(); render(); return "Calendario aperto"; }
+      if (intent.target === "lists")    { Lists.open(); render(); return "Liste aperte"; }
+      if (intent.target === "settings") { state.showSettings = true; render(); return "Impostazioni aperte"; }
+      return "Ok";
+    }
+    case "close": {
+      Calendar.close(); Lists.close();
+      state.showSettings = false; state.showHelp = false;
+      render();
+      return "Chiuso";
+    }
+    case "time_info": {
+      const d = new Date();
+      return `Sono le ${String(d.getHours()).padStart(2,"0")} e ${String(d.getMinutes()).padStart(2,"0")}`;
+    }
+    case "date_info": {
+      const d = new Date();
+      return "Oggi è " + d.toLocaleDateString("it-IT", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
     }
   }
 }
@@ -1874,6 +2048,7 @@ let state = {
   reminderAt: null,              // current input reminder (ms)
   showReminderPicker: false,
   showSettings: false,
+  showHelp: false,
   proactiveEnabled: localStorage.getItem("teto-proactive") === "1",
   notifiedTasks: new Set(),       // task IDs already notified this session
   undoTask: null,                 // last deleted task (for undo)
@@ -2538,6 +2713,13 @@ function render() {
         </div>
         <button class="reminder-clear" onclick="requestNotifPermission().then(ok=>showBubble(ok?'Notifiche attive~ ♪':'Notifiche negate 😢'))">Attiva</button>
       </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-label">Comandi vocali</div>
+          <div class="settings-hint">Scopri tutto quello che posso fare</div>
+        </div>
+        <button class="reminder-clear primary" onclick="state.showHelp=true;state.showSettings=false;render()">🎤 Aiuto</button>
+      </div>
     </div>` : ""}
 
     <div class="input-card">
@@ -2593,6 +2775,7 @@ function render() {
 
     ${Calendar.open_ ? renderCalendar() : ""}
     ${Lists.open_ ? renderLists() : ""}
+    ${s.showHelp ? renderHelp() : ""}
 
     <p class="footer">♪ TetoTask · made with 🍞 & ❤️ ♪</p>
   `;
@@ -2601,6 +2784,41 @@ function render() {
   if (s.editNote) {
     const ta = document.getElementById("noteArea");
     if (ta) { ta.oninput = e => { state.noteVal = e.target.value; }; }
+  }
+
+  // Disable re-animation of panels on subsequent renders.
+  // First time a panel is open (just after .open()), the animation plays.
+  // On every re-render while still open, we mark it .no-animate so navigation
+  // inside it doesn't re-trigger the slide-in effect.
+  if (Calendar.open_) {
+    const p = document.querySelector(".cal-panel");
+    if (p && Calendar._animated) p.classList.add("no-animate");
+    Calendar._animated = true;
+  } else {
+    Calendar._animated = false;
+  }
+  if (Lists.open_) {
+    const p = document.querySelector(".cal-panel");
+    if (p && Lists._animated) p.classList.add("no-animate");
+    Lists._animated = true;
+  } else {
+    Lists._animated = false;
+  }
+  // Cal form: separate tracker
+  if (Calendar.showForm) {
+    const f = document.querySelector(".cal-form");
+    if (f && Calendar._formAnimated) f.classList.add("no-animate");
+    Calendar._formAnimated = true;
+  } else {
+    Calendar._formAnimated = false;
+  }
+  // Help panel: disable re-animation
+  if (state.showHelp) {
+    const p = document.querySelector(".help-panel");
+    if (p && state._helpAnimated) p.classList.add("no-animate");
+    state._helpAnimated = true;
+  } else {
+    state._helpAnimated = false;
   }
 }
 
@@ -2834,6 +3052,90 @@ function renderLists() {
             </div>
           </button>`;
         }).join("")}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderHelp() {
+  const groups = [
+    {
+      title: "📝 Task e promemoria",
+      commands: [
+        { say: '"Comprare il pane"', does: "Crea un task semplice" },
+        { say: '"Domani alle 15 dentista"', does: "Task con promemoria" },
+        { say: '"Tra 2 ore chiamare Marco"', does: "Task con promemoria relativo" },
+        { say: '"Stasera pizza"', does: "Task per stasera (20:00)" },
+        { say: '"Completa pane"', does: "Segna fatto il task contenente 'pane'" },
+        { say: '"Cancella dentista"', does: "Elimina il task contenente 'dentista'" },
+        { say: '"Annulla"', does: "Recupera l'ultimo task cancellato" },
+      ],
+    },
+    {
+      title: "📅 Eventi calendario",
+      commands: [
+        { say: '"Cena con Anna venerdì alle 20"', does: "Crea evento sul calendario" },
+        { say: '"Evento: compleanno Luca domani 19"', does: "Forza il tipo evento" },
+        { say: '"Apri calendario"', does: "Apre il calendario" },
+      ],
+    },
+    {
+      title: "🗒️ Note e liste",
+      commands: [
+        { say: '"Crea lista film"', does: "Crea una nuova lista" },
+        { say: '"Aggiungi Inception alla lista film"', does: "Aggiunge voce alla lista" },
+        { say: '"Mostra lista spesa"', does: "Apre la lista" },
+        { say: '"Cosa c\'è nella lista film"', does: "Apre e mostra contenuto" },
+        { say: '"Nota: idea per progetto"', does: "Aggiunge a lista Note" },
+        { say: '"Apri liste"', does: "Vede tutte le liste" },
+      ],
+    },
+    {
+      title: "🎯 Riassunti e comandi",
+      commands: [
+        { say: '"Cosa devo fare oggi"', does: "Riassunto task di oggi" },
+        { say: '"Cosa devo fare domani"', does: "Riassunto di domani" },
+        { say: '"Cosa devo fare questa settimana"', does: "Riassunto settimana" },
+        { say: '"Che ora è"', does: "Ti dice l'ora" },
+        { say: '"Che giorno è"', does: "Ti dice la data" },
+        { say: '"Apri impostazioni"', does: "Apre impostazioni" },
+        { say: '"Chiudi"', does: "Chiude il pannello aperto" },
+      ],
+    },
+    {
+      title: "💬 Conversazione",
+      commands: [
+        { say: '"Ciao" / "Buongiorno"', does: "Saluto" },
+        { say: '"Come stai"', does: "Chiedi come sta" },
+        { say: '"Grazie"', does: "Ringrazia" },
+      ],
+    },
+  ];
+
+  return `<div class="cal-overlay" onclick="if(event.target===this){state.showHelp=false;render()}">
+    <div class="cal-panel help-panel">
+      <div class="cal-header">
+        <div>
+          <div class="cal-title-small">🎤 Aiuto vocale</div>
+          <div class="cal-month-label">Cosa posso fare</div>
+        </div>
+        <button class="cal-close" onclick="state.showHelp=false;render()">✕</button>
+      </div>
+
+      <div class="help-intro">
+        Parla o scrivi nel campo principale. Capisco molte cose in italiano — anche se formuli le frasi in modo naturale!
+      </div>
+
+      ${groups.map(g => `<div class="help-group">
+        <div class="help-group-title">${g.title}</div>
+        ${g.commands.map(cmd => `<div class="help-cmd">
+          <div class="help-cmd-say">${esc(cmd.say)}</div>
+          <div class="help-cmd-does">${esc(cmd.does)}</div>
+        </div>`).join("")}
+      </div>`).join("")}
+
+      <div class="help-footer">
+        💡 Usa i prefissi <b>"task:"</b>, <b>"evento:"</b>, <b>"nota:"</b> per forzare il tipo se non capisco al volo.
       </div>
     </div>
   </div>`;
