@@ -1144,6 +1144,79 @@ const TETO = {
   dueSoon:  (text) => `Ehi~ tra poco: "${text}" 🔔`,
   overdue:  (text) => `Attenzione~! "${text}" è in ritardo! ⏰`,
   remSet:   "Promemoria impostato~ ♪",
+
+  // Big pool of Teto-flavored quotes — triggered by "dimmi qualcosa/frase/citazione"
+  quotes: [
+    // 🥖 Ossessione per il pane
+    "Il pane è la base della felicità umana, punto. 🥖",
+    "Un giorno senza baguette è un giorno sprecato~",
+    "Chi divide il suo pane con me è un amico per sempre 🍞",
+    "Dicono che sono fissata col pane... forse hanno ragione! 🥖♡",
+    "Sento le baguette chiamarmi, devo rispondere!",
+    "Regola #1 di Teto: sempre pane in tasca, non si sa mai",
+    "Il profumo del pane appena sfornato è magico~ ✨",
+    "Preferirei una baguette a un tesoro. Cioè, la baguette È un tesoro!",
+    "Pane integrale, pane bianco, pane alla crusca... li amo tutti! 🥖",
+    "Panino, ergo sum! 🍞",
+    "Se non c'è pane, non c'è Teto. Scienza.",
+    "La crosta è la parte migliore, cambia idea se non lo pensi~",
+
+    // 🐉 Identità chimera / UTAU
+    "Sono una chimera ufficialmente registrata~ (per il pranzo)",
+    "Ho 31 anni ma ne dimostro 15, mistero della biologia!",
+    "Non sono un vero Vocaloid, ma sono vera nel mio cuore ♡",
+    "Sono nata come pesce d'aprile e sono diventata realtà! 🐟🥖",
+    "Drilloni rosa? Si chiamano caratteristiche distintive! 💕",
+    "UTAU forever~ siamo la famiglia strana ma bella ♪",
+    "Mio fratello Ted dice ciao. O forse no, non ci parliamo 😏",
+    "Le mie trecce drill sono aerodinamiche, cosa credi!",
+
+    // 🎵 Caotica / giocosa
+    "Triple Baka~! Tripla dose di caos e amore ♪",
+    "Un giorno conquisterò il mondo... ma prima un panino",
+    "La procrastinazione è un'arte, e io sono Picasso~",
+    "Se puoi farlo domani, perché farlo oggi? Filosofia di Teto 🌸",
+    "Ehehehe~ ♪",
+    "Kasane Territory! Qui comando io! 👑🥖",
+    "Boccioli di stupidità sbocciano nel mio cuore~",
+    "Se mi dici 'Teto' tre volte appaio. Come Beetlejuice ma col pane!",
+
+    // 💪 Motivazionali (stile Teto)
+    "Anche le giornate peggiori migliorano col pane! 🍞",
+    "Un passo alla volta, una briciola alla volta~",
+    "Puoi farcela! E se non ce la fai, c'è sempre il pane ♪",
+    "La vita è come una baguette: dura fuori, morbida dentro 🥖",
+    "Credici! Anche io credo in te ✨",
+    "Sei più forte di quanto pensi, e meriti un panino! ♡",
+    "Riposare non è perdere tempo, è ricaricare le batterie~",
+    "Anche i fallimenti sono ingredienti della ricetta della vita!",
+
+    // 🌸 Assurde / dolci
+    "Se volo, ricordati che è merito dei miei drilloni!",
+    "Essere immaginaria non mi impedisce di essere fantastica~",
+    "Se non esisto perché sto parlando? Domanda filosofica del giorno",
+    "Miku è la più famosa, ma io sono la più RELATABLE ♪",
+    "Il mondo ha bisogno di più cose rosa e di più pane 💕🥖",
+    "Le stelle sono solo briciole di pane nel cielo... cambio idea tua",
+    "Sorridi~ te lo ordina Teto! (e io so essere molto convincente)",
+    "L'universo è grande ma il mio appetito è più grande 🌌🍞",
+  ],
+
+  // Pool di barzellette/battute
+  jokes: [
+    "Perché il pane va a scuola? Per diventare una pagnotta istruita! 🍞",
+    "Cosa fa un pane quando è triste? Si intristisce... senza mollica! 🥖",
+    "Qual è il colmo per un pane? Essere in una brutta pagina!",
+    "Bussa bussa! Chi è? Un tost! Un tost chi? Un toast a te! 🥂",
+    "Perché il libro di matematica era triste? Perché aveva troppi problemi!",
+    "Come si chiama un pesce senza occhi? Pesc!",
+    "Cosa dice un muro a un altro muro? Ci vediamo all'angolo!",
+    "Perché gli scheletri non combattono? Perché non hanno fegato!",
+    "Qual è il colmo per un elettricista? Avere figli brillanti!",
+    "Cosa fa una lavatrice in montagna? Il lavaggio a sei ruote motrici!",
+    "Due vocaloid vanno al bar. Un tast se ne va, Teto rimane. Perché? Perché ha ordinato il pane! 🥖",
+    "Come si chiama il cugino vegano del panino? Il panon-carne!",
+  ],
 };
 
 function contextualGreeting() {
@@ -1155,6 +1228,274 @@ function contextualGreeting() {
 }
 
 const pick = a => a[Math.floor(Math.random()*a.length)];
+
+/* ═══════════════════════════════════════════════════════════════
+   🔧 UTILS — math, weather, timer, conversions, random
+   ═══════════════════════════════════════════════════════════════ */
+
+// Italian number words 0–100 (subset covering common cases)
+const NUMS_IT = {
+  "zero":0,"uno":1,"un":1,"una":1,"due":2,"tre":3,"quattro":4,"cinque":5,
+  "sei":6,"sette":7,"otto":8,"nove":9,"dieci":10,
+  "undici":11,"dodici":12,"tredici":13,"quattordici":14,"quindici":15,
+  "sedici":16,"diciassette":17,"diciotto":18,"diciannove":19,
+  "venti":20,"ventuno":21,"ventidue":22,"trenta":30,"quaranta":40,
+  "cinquanta":50,"sessanta":60,"settanta":70,"ottanta":80,"novanta":90,"cento":100,
+};
+function parseItNum(w) {
+  if (!w) return null;
+  w = String(w).toLowerCase().trim();
+  if (/^\d+(?:[,.]\d+)?$/.test(w)) return parseFloat(w.replace(",","."));
+  return NUMS_IT[w] ?? null;
+}
+
+/* ─── Safe math evaluator (Italian-aware) ─────────────────────── */
+function computeMath(exprRaw) {
+  let s = String(exprRaw || "").toLowerCase().trim();
+  if (!s) return null;
+  // Pad with spaces so "più" / "è" (non-ASCII word chars break \b) match via " X "
+  s = " " + s + " ";
+  // Italian words → operators (space-delimited to sidestep \b / Unicode issues)
+  s = s.replace(/\s+più\s+/g, " + ");
+  s = s.replace(/^più\s+/g, " + ");          // safety: leading "più"
+  s = s.replace(/\bmeno\b/g, " - ");
+  s = s.replace(/\b(?:moltiplicato\s+per|moltiplicato|per|volte|x)\b/g, " * ");
+  s = s.replace(/\b(?:diviso\s+per|diviso|fratto|su)\b/g, " / ");
+  s = s.replace(/\b(?:elevato\s+alla?|elevato|alla)\b/g, " ** ");
+  // Percentage: "20% di 150" → "(20/100)*150"
+  s = s.replace(/(\d+(?:[.,]\d+)?)\s*%\s*di\s+/g, "($1/100)*");
+  // Decimal comma → point
+  s = s.replace(/(\d+),(\d+)/g, "$1.$2");
+  // "N e M" as addition (only between numbers)
+  s = s.replace(/(\d+)\s+e\s+(\d+)/g, "$1 + $2");
+  // Strip filler: di/il/la/i/gli/le/fa/sono/uguale (and "è" via spaces)
+  s = s.replace(/\s+è\s+/g, " ");
+  s = s.replace(/\b(?:di|il|la|i|gli|le|fa|sono|uguale|uguali)\b/g, " ");
+  // Collapse whitespace
+  s = s.replace(/\s+/g, " ").trim();
+  // Safety: allow only digits, operators, parens, dot, space
+  if (!/^[\d+\-*/().\s]+$/.test(s)) return null;
+  if (/[+\-*/]\s*$/.test(s)) return null;
+  try {
+    // eslint-disable-next-line no-new-func
+    const fn = new Function("return (" + s + ");");
+    const result = fn();
+    if (typeof result !== "number" || !isFinite(result)) return null;
+    return result;
+  } catch (e) { return null; }
+}
+function formatMathResult(n) {
+  if (Number.isInteger(n)) return n.toString();
+  // Round to 4 decimal places, strip trailing zeros
+  return parseFloat(n.toFixed(4)).toString();
+}
+
+/* ─── Duration parsing ("5 minuti", "mezz'ora", "un quarto d'ora") ─ */
+function parseDuration(s) {
+  s = String(s || "").toLowerCase().trim();
+  if (!s) return null;
+  if (/\bmezz'?\s*ora\b/.test(s)) return 30 * 60 * 1000;
+  if (/\b(?:un\s+)?quarto\s+d'?\s*ora\b/.test(s)) return 15 * 60 * 1000;
+  if (/\bun'?\s*ora\b/.test(s)) return 60 * 60 * 1000;
+  if (/\bdue\s+ore\b/.test(s)) return 2 * 60 * 60 * 1000;
+  if (/\bun\s+minuto\b/.test(s)) return 60 * 1000;
+  let m;
+  if ((m = s.match(/(\d+(?:[,.]\d+)?)\s*(secondi?|sec|minuti?|min|ore|ora|h)\b/))) {
+    const n = parseFloat(m[1].replace(",","."));
+    const unit = m[2];
+    if (/^sec/.test(unit)) return n * 1000;
+    if (/^min/.test(unit)) return n * 60 * 1000;
+    if (/^or|^h/.test(unit)) return n * 3600 * 1000;
+  }
+  // Italian word form (es. "cinque minuti")
+  for (const [w, n] of Object.entries(NUMS_IT)) {
+    const rx = new RegExp(`\\b${w}\\s+(secondi?|sec|minuti?|min|ore|ora|h)\\b`);
+    const mm = s.match(rx);
+    if (mm) {
+      const unit = mm[1];
+      if (/^sec/.test(unit)) return n * 1000;
+      if (/^min/.test(unit)) return n * 60 * 1000;
+      if (/^or|^h/.test(unit)) return n * 3600 * 1000;
+    }
+  }
+  return null;
+}
+function formatDuration(ms) {
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h} or${h===1?"a":"e"}`;
+  if (m && s && m < 5) return `${m}m ${s}s`;
+  if (m) return `${m} minut${m===1?"o":"i"}`;
+  return `${s} second${s===1?"o":"i"}`;
+}
+
+/* ─── Timer manager ──────────────────────────────────────────── */
+const Timers = {
+  active: [],
+  start(ms, label) {
+    const id = "t" + Date.now() + Math.random().toString(36).slice(2,6);
+    const endAt = Date.now() + ms;
+    const handle = setTimeout(() => this.fire(id), ms);
+    const t = { id, label: label || "timer", endAt, handle };
+    this.active.push(t);
+    return t;
+  },
+  fire(id) {
+    const i = this.active.findIndex(t => t.id === id);
+    if (i < 0) return;
+    const t = this.active[i];
+    this.active.splice(i, 1);
+    try { showBubble(`⏰ Timer ${t.label} finito!`); } catch(e){}
+    try { TTS.speak(`Timer ${t.label} finito!`); } catch(e){}
+    try { haptic(300); } catch(e){}
+    try {
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("Teto", { body: `⏰ Timer ${t.label} finito!`, icon: typeof TETO_IMG !== "undefined" ? TETO_IMG : undefined });
+      }
+    } catch(e){}
+  },
+  cancelAll() {
+    this.active.forEach(t => clearTimeout(t.handle));
+    this.active = [];
+  },
+};
+
+/* ─── Unit conversion (length, mass, volume, time) ────────────── */
+const UNITS = {
+  // mass (base g)
+  mg: { type:"mass", f:0.001, aliases:["mg","milligrammi","milligrammo"] },
+  g:  { type:"mass", f:1, aliases:["g","gr","grammo","grammi"] },
+  kg: { type:"mass", f:1000, aliases:["kg","kilo","kilogrammo","kilogrammi","chilo","chili","chilogrammo","chilogrammi"] },
+  q:  { type:"mass", f:100000, aliases:["q","quintale","quintali"] },
+  t:  { type:"mass", f:1e6, aliases:["t","tonnellata","tonnellate"] },
+  // length (base m)
+  mm: { type:"length", f:0.001, aliases:["mm","millimetro","millimetri"] },
+  cm: { type:"length", f:0.01, aliases:["cm","centimetro","centimetri"] },
+  dm: { type:"length", f:0.1, aliases:["dm","decimetro","decimetri"] },
+  m:  { type:"length", f:1, aliases:["m","metro","metri"] },
+  km: { type:"length", f:1000, aliases:["km","chilometro","chilometri","kilometro","kilometri"] },
+  // volume (base ml)
+  ml: { type:"volume", f:1, aliases:["ml","millilitro","millilitri"] },
+  cl: { type:"volume", f:10, aliases:["cl","centilitro","centilitri"] },
+  dl: { type:"volume", f:100, aliases:["dl","decilitro","decilitri"] },
+  l:  { type:"volume", f:1000, aliases:["l","litro","litri"] },
+  // time (base sec)
+  sec: { type:"time", f:1, aliases:["s","sec","secondo","secondi"] },
+  minu:{ type:"time", f:60, aliases:["min","minuto","minuti"] },
+  ora: { type:"time", f:3600, aliases:["h","ora","ore"] },
+  gior:{ type:"time", f:86400, aliases:["giorno","giorni"] },
+};
+function findUnit(name) {
+  if (!name) return null;
+  const n = String(name).toLowerCase().trim();
+  for (const [k, u] of Object.entries(UNITS)) {
+    if (u.aliases.includes(n)) return { key:k, type:u.type, f:u.f };
+  }
+  return null;
+}
+function convertUnit(value, fromName, toName) {
+  const from = findUnit(fromName);
+  const to   = findUnit(toName);
+  if (!from || !to || from.type !== to.type) return null;
+  return value * from.f / to.f;
+}
+
+/* ─── Weather (Open-Meteo, no API key required) ──────────────── */
+const WMO_CODES = {
+  0:"sereno ☀️", 1:"quasi sereno 🌤", 2:"parzialmente nuvoloso ⛅", 3:"nuvoloso ☁️",
+  45:"nebbia 🌫", 48:"nebbia con brina 🌫",
+  51:"pioggerella leggera 💧", 53:"pioggerella 💧", 55:"pioggerella intensa 💧",
+  56:"pioggerella ghiacciata 🥶", 57:"pioggerella ghiacciata intensa 🥶",
+  61:"pioggia leggera 🌧", 63:"pioggia 🌧", 65:"pioggia forte 🌧",
+  66:"pioggia ghiacciata 🥶", 67:"pioggia ghiacciata forte 🥶",
+  71:"nevicata leggera 🌨", 73:"nevicata 🌨", 75:"nevicata forte 🌨",
+  77:"granelli di neve ❄️",
+  80:"rovesci 🌦", 81:"rovesci 🌧", 82:"rovesci violenti ⛈",
+  85:"rovesci di neve 🌨", 86:"rovesci di neve forti 🌨",
+  95:"temporale ⛈", 96:"temporale con grandine ⛈", 99:"temporale forte con grandine ⛈",
+};
+function getUserLocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error("no-geo"));
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      err => reject(err),
+      { timeout: 8000, maximumAge: 30 * 60 * 1000 }
+    );
+  });
+}
+async function geocodeCity(name) {
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=it&format=json`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data?.results?.[0] || null;
+}
+async function fetchWeather(lat, lon) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+    `&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m,apparent_temperature` +
+    `&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max` +
+    `&timezone=auto&forecast_days=3`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("meteo-" + res.status);
+  return res.json();
+}
+function formatWeatherCurrent(data, cityLabel) {
+  const c = data.current;
+  const desc = WMO_CODES[c.weather_code] || "cielo misterioso";
+  const temp = Math.round(c.temperature_2m);
+  const feels = Math.round(c.apparent_temperature);
+  return `A ${cityLabel} ora: ${desc}, ${temp}°C (percepiti ${feels}°). Vento ${Math.round(c.wind_speed_10m)} km/h, umidità ${c.relative_humidity_2m}%`;
+}
+function formatWeatherDay(data, dayIndex, cityLabel, dayLabel) {
+  const d = data.daily;
+  const code = d.weather_code[dayIndex];
+  const desc = WMO_CODES[code] || "boh";
+  const tmax = Math.round(d.temperature_2m_max[dayIndex]);
+  const tmin = Math.round(d.temperature_2m_min[dayIndex]);
+  const rain = d.precipitation_probability_max ? d.precipitation_probability_max[dayIndex] : 0;
+  let s = `${dayLabel} a ${cityLabel}: ${desc}, min ${tmin}° max ${tmax}°`;
+  if (rain >= 30) s += `, pioggia probabile (${rain}%)`;
+  return s;
+}
+
+/* ─── Festività / countdown ──────────────────────────────────── */
+function nextHoliday(month, day) {
+  // month is 0-indexed (Jan=0)
+  const now = new Date();
+  const thisYear = new Date(now.getFullYear(), month, day, 0, 0, 0, 0);
+  // If today is the holiday itself, return today (not next year)
+  const today0 = new Date(); today0.setHours(0,0,0,0);
+  if (thisYear.getTime() >= today0.getTime()) return thisYear;
+  return new Date(now.getFullYear() + 1, month, day, 0, 0, 0, 0);
+}
+function findHoliday(q) {
+  const n = String(q || "").toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z\s]/g, "").trim();
+  if (/natal/.test(n))                       return { date: nextHoliday(11, 25), name: "Natale 🎄" };
+  if (/capodanno|san\s*silvestro/.test(n))   return { date: nextHoliday(0, 1),   name: "Capodanno 🎆" };
+  if (/epifania|befana/.test(n))             return { date: nextHoliday(0, 6),   name: "Epifania 🧙" };
+  if (/san\s*valentino|valentino/.test(n))   return { date: nextHoliday(1, 14),  name: "San Valentino 💝" };
+  if (/festa.*donna|otto\s*marzo/.test(n))   return { date: nextHoliday(2, 8),   name: "Festa della Donna 🌸" };
+  if (/liberazione|venticinque.*aprile/.test(n)) return { date: nextHoliday(3, 25), name: "Festa della Liberazione" };
+  if (/primo\s*maggio|festa.*lavor/.test(n)) return { date: nextHoliday(4, 1),   name: "Festa dei Lavoratori" };
+  if (/repubblica|due\s*giugno/.test(n))     return { date: nextHoliday(5, 2),   name: "Festa della Repubblica 🇮🇹" };
+  if (/ferragosto/.test(n))                  return { date: nextHoliday(7, 15),  name: "Ferragosto 🏖" };
+  if (/ogniss|tutti\s*i\s*santi/.test(n))    return { date: nextHoliday(9, 1),   name: "Ognissanti" };
+  if (/halloween/.test(n))                   return { date: nextHoliday(9, 31),  name: "Halloween 🎃" };
+  if (/immacolata/.test(n))                  return { date: nextHoliday(11, 8),  name: "Immacolata" };
+  if (/santo\s*stefano/.test(n))             return { date: nextHoliday(11, 26), name: "Santo Stefano" };
+  return null;
+}
+function daysBetween(futureDate) {
+  const now = new Date();
+  const d0 = new Date(); d0.setHours(0,0,0,0);
+  return Math.ceil((futureDate.getTime() - d0.getTime()) / 86400000);
+}
+
 
 /* ─── Text-to-Speech (voce italiana di sistema) ─── */
 const TTS = {
@@ -1917,14 +2258,77 @@ function detectIntent(rawText) {
     return { kind: "chat", text: t };
   }
 
-  // ─── QUESTIONS WE CAN'T ANSWER (weather, general knowledge) ─
-  // Don't turn them into tasks!
-  if (/^(?:che\s+tempo|come\s+(?:è|sarà)\s+il\s+tempo|piover[àa]|fa(?:rà)?\s+freddo|fa(?:rà)?\s+caldo)\b/i.test(lower)) {
-    return { kind: "unknown_question", topic: "meteo" };
+  // ─── QUESTIONS WE CAN ANSWER ─────────────────────────────
+  // WEATHER
+  if ((m = lower.match(/^(?:che\s+tempo\s+fa|com'?è\s+il\s+tempo|come\s+è\s+il\s+tempo|che\s+tempo\s+c'?è|piove|sta\s+piovendo|fa\s+caldo|fa\s+freddo|c'?è\s+il\s+sole|meteo)(?:\s+(?:a|in|su)\s+(.+))?$/i))) {
+    return { kind: "weather", city: m[1] ? m[1].trim() : null, when: "now" };
   }
-  if (/^(?:quanto\s+fa|quanto\s+è|calcola)\b/i.test(lower)) {
+  if ((m = lower.match(/^(?:che\s+tempo\s+(?:farà|fara)|come\s+sarà\s+il\s+tempo|meteo)\s+domani(?:\s+(?:a|in|su)\s+(.+))?$/i))) {
+    return { kind: "weather", city: m[1] ? m[1].trim() : null, when: "tomorrow" };
+  }
+  if (/^meteo\s+domani$/i.test(lower)) {
+    return { kind: "weather", city: null, when: "tomorrow" };
+  }
+
+  // MATH — "quanto fa X" / "calcola X" / "quanto è X"
+  if ((m = lower.match(/^(?:quanto\s+(?:fa|è|sono|vale)|calcola(?:mi)?|fammi\s+il\s+conto\s+di|fa)\s+(.+)/i))) {
+    const result = computeMath(m[1]);
+    if (result !== null) return { kind: "math", expr: m[1].trim(), result };
     return { kind: "unknown_question", topic: "math" };
   }
+  // Standalone expression like "15 * 3" or "2+2"
+  if (/^[\d\s+\-*/().,]+$/.test(t) && /[+\-*/]/.test(t) && /\d/.test(t)) {
+    const result = computeMath(t);
+    if (result !== null) return { kind: "math", expr: t, result };
+  }
+
+  // TIMER — "metti un timer di 5 minuti"
+  if ((m = lower.match(/^(?:metti(?:mi)?|imposta(?:mi)?|avvia(?:mi)?|parti\s+con|fai\s+partire|fammi)?\s*(?:un\s+)?timer\s+(?:di\s+|per\s+|a\s+)?(.+)/i)) ||
+      (m = lower.match(/^timer\s+(.+)/i))) {
+    const ms = parseDuration(m[1]);
+    if (ms && ms > 0 && ms < 24*3600*1000) {
+      return { kind: "timer", ms, label: formatDuration(ms) };
+    }
+    return { kind: "clarify", original: "timer: durata non chiara (es. \"timer di 5 minuti\")" };
+  }
+
+  // COIN / DICE / RANDOM
+  if (/^testa\s+o\s+croce\b/i.test(lower) ||
+      /^(?:lancia(?:mi)?|tira(?:mi)?)\s+(?:una\s+)?moneta\b/i.test(lower)) {
+    return { kind: "coin" };
+  }
+  if (/^(?:tira(?:mi)?|lancia(?:mi)?)\s+(?:un\s+)?dado\b/i.test(lower) || /^dado\s*$/i.test(lower)) {
+    return { kind: "dice" };
+  }
+  if ((m = lower.match(/^(?:numero\s+casuale|dammi\s+un\s+numero|un\s+numero\s+(?:a\s+caso|casuale))(?:\s+(?:tra|fra|da)\s+(\d+)\s+(?:e|a)\s+(\d+))?/i))) {
+    const min = m[1] ? parseInt(m[1]) : 1;
+    const max = m[2] ? parseInt(m[2]) : 100;
+    return { kind: "random", min: Math.min(min,max), max: Math.max(min,max) };
+  }
+
+  // UNIT CONVERSION — "convertimi 5 km in metri" / "5 km in metri"
+  if ((m = lower.match(/^(?:converti(?:mi)?|trasforma|cambia|quanti\s+fanno)\s+(\d+(?:[,.]\d+)?)\s+(\S+)\s+in\s+(\S+)/i)) ||
+      (m = lower.match(/^(\d+(?:[,.]\d+)?)\s+(\S+)\s+in\s+(\S+)\s*$/i))) {
+    const value = parseFloat(m[1].replace(",","."));
+    return { kind: "convert", value, from: m[2], to: m[3] };
+  }
+
+  // COUNTDOWN — "quanti giorni a/al/mancano a X" / "quando è X"
+  if ((m = lower.match(/^quant[ie]\s+giorni?\s+(?:a|al|alla|allo|ai|agli|alle|per|mancano\s+a|mancano\s+al|mancano\s+alla|c'?è\s+a|c'?è\s+al|c'?è\s+alla)\s+(.+)/i)) ||
+      (m = lower.match(/^(?:quando\s+è|quando\s+c'?è)\s+(.+)/i))) {
+    return { kind: "countdown", holiday: m[1].trim() };
+  }
+
+  // QUOTES — "dimmi qualcosa/una frase/una citazione/stupiscimi"
+  if (/^(?:dimmi\s+(?:qualcosa|una\s+cosa|una\s+frase|una\s+citazione|qualcosa\s+di\s+bello)|(?:una\s+)?frase\s+(?:di\s+)?teto|(?:una\s+)?citazione|stupiscimi|fammi\s+sorridere|dimmi\s+(?:la\s+)?tua\s+(?:frase|citazione))\b/i.test(lower)) {
+    return { kind: "quote" };
+  }
+  if (/^(?:racconta(?:mi)?|dimmi)\s+(?:una\s+)?(?:barzelletta|battuta|storia|battutona)/i.test(lower) ||
+      /^fammi\s+ridere\b/i.test(lower)) {
+    return { kind: "joke" };
+  }
+
+  // QUESTIONS WE STILL CAN'T ANSWER
   if (/^(?:cerca|googla|google|cerca\s+su\s+internet|trova\s+su\s+internet)\b/i.test(lower)) {
     return { kind: "unknown_question", topic: "search" };
   }
@@ -2156,9 +2560,79 @@ async function executeIntent(intent) {
         return "Non sono riuscita a eliminare la lista";
       }
     }
+    case "math": {
+      return `${intent.expr} = ${formatMathResult(intent.result)}`;
+    }
+    case "weather": {
+      try {
+        let lat, lon, cityLabel;
+        if (intent.city) {
+          const geo = await geocodeCity(intent.city);
+          if (!geo) return `Non ho trovato la città "${intent.city}" 🗺`;
+          lat = geo.latitude; lon = geo.longitude;
+          cityLabel = geo.name;
+        } else {
+          try {
+            const loc = await getUserLocation();
+            lat = loc.lat; lon = loc.lon;
+            cityLabel = "qui";
+          } catch (e) {
+            return "Per il meteo locale mi serve il permesso di localizzazione, oppure dimmi la città (es. \"che tempo fa a Milano\") 📍";
+          }
+        }
+        const data = await fetchWeather(lat, lon);
+        if (intent.when === "tomorrow") {
+          return formatWeatherDay(data, 1, cityLabel, "Domani");
+        }
+        return formatWeatherCurrent(data, cityLabel);
+      } catch (e) {
+        console.error("Weather error:", e);
+        return "Non sono riuscita a recuperare il meteo 😢 (connessione?)";
+      }
+    }
+    case "timer": {
+      Timers.start(intent.ms, intent.label);
+      return `⏰ Timer di ${intent.label} avviato! Ti avviso quando è finito~ ♪`;
+    }
+    case "coin": {
+      return Math.random() < 0.5 ? "🪙 Testa!" : "🪙 Croce!";
+    }
+    case "dice": {
+      const n = Math.floor(Math.random() * 6) + 1;
+      return `🎲 Esce un ${n}!`;
+    }
+    case "random": {
+      const n = Math.floor(Math.random() * (intent.max - intent.min + 1)) + intent.min;
+      return `🎲 ${n} (tra ${intent.min} e ${intent.max})`;
+    }
+    case "convert": {
+      const result = convertUnit(intent.value, intent.from, intent.to);
+      if (result === null) {
+        const from = findUnit(intent.from);
+        const to   = findUnit(intent.to);
+        if (!from || !to) return `Non conosco "${intent.from}" o "${intent.to}" come unità di misura`;
+        if (from.type !== to.type) return `Non posso convertire ${intent.from} (${from.type}) in ${intent.to} (${to.type})`;
+        return "Non sono riuscita a fare la conversione";
+      }
+      return `${intent.value} ${intent.from} = ${formatMathResult(result)} ${intent.to}`;
+    }
+    case "countdown": {
+      const h = findHoliday(intent.holiday);
+      if (!h) return `Non conosco la festività "${intent.holiday}". Prova: Natale, Capodanno, Ferragosto, Halloween, San Valentino...`;
+      const days = daysBetween(h.date);
+      if (days === 0) return `${h.name} è OGGI! 🎉`;
+      if (days === 1) return `${h.name} è domani! 🎊`;
+      const dateStr = h.date.toLocaleDateString("it-IT", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+      return `Mancano ${days} giorni a ${h.name} (${dateStr})`;
+    }
+    case "quote": {
+      return pick(TETO.quotes);
+    }
+    case "joke": {
+      return pick(TETO.jokes);
+    }
     case "unknown_question": {
-      if (intent.topic === "meteo")  return "Il meteo non lo so ancora fare, scusami~ 🌦";
-      if (intent.topic === "math")   return "I calcoli non li so ancora fare, ma posso segnarlo come nota se vuoi";
+      if (intent.topic === "math")   return "Non sono riuscita a calcolarlo... prova con operatori più semplici (più, meno, per, diviso)";
       if (intent.topic === "search") return "Non posso cercare su internet da qui, ma posso salvarti un promemoria!";
       return "Non sono sicura di aver capito. Prova con \"aiuto\"!";
     }
@@ -2222,12 +2696,7 @@ function conversationalReply(text) {
 
   // Jokes
   if (/\b(?:barzelletta|battuta|storia)\b/.test(t)) {
-    return pick([
-      "Perché il pane va a scuola? Per diventare una pagnotta istruita! 🍞",
-      "Cosa fa un pane quando è triste? Si intristisce... senza mollica! 🥖",
-      "Qual è il colmo per un pane? Essere in una brutta pagina! 📖",
-      "Bussa bussa! Chi è? Un tost! Un tost chi? Un toast a te! 🥂",
-    ]);
+    return pick(TETO.jokes);
   }
 
   // "Sei sveglia?"
@@ -3631,12 +4100,43 @@ function renderHelp() {
       ],
     },
     {
+      title: "🧮 Calcoli e conversioni",
+      commands: [
+        { say: '"Quanto fa 15 più 27"', does: "Calcolo (più/meno/per/diviso)" },
+        { say: '"Calcola 20% di 150"', does: "Percentuali" },
+        { say: '"2 elevato alla 10"', does: "Potenze" },
+        { say: '"5 km in metri"', does: "Conversioni unità" },
+        { say: '"Converti 500 g in kg"', does: "Peso, lunghezza, volume, tempo" },
+      ],
+    },
+    {
+      title: "🌦 Meteo",
+      commands: [
+        { say: '"Che tempo fa"', does: "Meteo locale (chiede posizione)" },
+        { say: '"Che tempo fa a Milano"', does: "Meteo in una città" },
+        { say: '"Che tempo farà domani"', does: "Previsioni per domani" },
+        { say: '"Meteo domani a Roma"', does: "Città + giorno" },
+      ],
+    },
+    {
+      title: "⏰ Timer e giochi",
+      commands: [
+        { say: '"Metti un timer di 5 minuti"', does: "Timer vocale" },
+        { say: '"Timer di mezz\'ora"', does: "Timer con frazione" },
+        { say: '"Testa o croce"', does: "Lancio moneta" },
+        { say: '"Tira un dado"', does: "Dado 1-6" },
+        { say: '"Numero casuale tra 1 e 100"', does: "Random" },
+        { say: '"Quanti giorni a Natale"', does: "Countdown festività" },
+      ],
+    },
+    {
       title: "💬 Conversazione",
       commands: [
         { say: '"Ciao" / "Buongiorno"', does: "Saluto" },
         { say: '"Come stai"', does: "Chiacchiere" },
         { say: '"Grazie"', does: "Ringrazia" },
         { say: '"Chi sei"', does: "Si presenta" },
+        { say: '"Dimmi qualcosa" / "Dimmi una frase"', does: "Citazione Teto 🥖" },
         { say: '"Raccontami una barzelletta"', does: "Battuta" },
       ],
     },
