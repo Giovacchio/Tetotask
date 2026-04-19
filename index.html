@@ -1257,6 +1257,12 @@ const TTS = {
     u.pitch  = this.settings.pitch;
     u.volume = this.settings.volume;
     if (this.voice) u.voice = this.voice;
+    // Pause wake listener during speech so Teto can't trigger her own name.
+    // WAKE may not be defined yet when TTS.init() runs on first load.
+    const wakeOn = (typeof WAKE !== "undefined") && WAKE.enabled && !WAKE.paused;
+    if (wakeOn) WAKE.pause();
+    u.onend   = () => { if (wakeOn) WAKE.resume(); };
+    u.onerror = () => { if (wakeOn) WAKE.resume(); };
     speechSynthesis.speak(u);
   },
   stop() { speechSynthesis?.cancel(); },
@@ -1302,6 +1308,131 @@ const TTS = {
   },
 };
 TTS.init();
+
+/* ─── Wake word listener ("Ehy Teto") ─────────────────────────────
+   Continuously listens in the background; when it hears the wake
+   phrase it opens the normal command microphone. Only ONE recognizer
+   can run at a time in a given tab, so we pause the wake listener
+   whenever:
+     • the command mic (toggleMic) is active
+     • Teto is speaking via TTS (so she doesn't trigger herself)
+   We auto-restart on onend because continuous recognition on Chromium
+   silently dies after ~60s of silence.                               */
+const WAKE = {
+  enabled: localStorage.getItem("teto-wake") === "1",
+  rec: null,
+  paused: false,
+  // Italian ASR transcribes "hey teto" in many ways — match broadly
+  patterns: [
+    /\beh?y\s*teto\b/i,        // "ehy teto", "ey teto"
+    /\bhey\s*teto\b/i,         // "hey teto"
+    /\behi\s*teto\b/i,         // "ehi teto" (most common Italian form)
+    /\bei\s*teto\b/i,          // "ei teto"
+    /\beh\s*teto\b/i,          // "eh teto"
+    /\bhei\s*teto\b/i,         // "hei teto"
+    /\bai\s*teto\b/i,          // "ei" sometimes heard as "ai"
+    /\beh?y\s*tetto\b/i,       // "teto" → "tetto" (roof) is a common miss
+    /\behi\s*tetto\b/i,
+    /\bhey\s*tetto\b/i,
+  ],
+  supported() {
+    return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  },
+  matches(text) {
+    const t = String(text || "").toLowerCase();
+    if (!/teto|tetto/.test(t)) return false;
+    return this.patterns.some(re => re.test(t));
+  },
+  start() {
+    if (!this.enabled) return;
+    if (!this.supported()) return;
+    if (this.paused) return;
+    if (this.rec) return;            // already running
+    if (state.listening) return;     // command mic has priority
+    // Defer if TTS is still speaking
+    if (window.speechSynthesis && speechSynthesis.speaking) {
+      setTimeout(() => this.start(), 400);
+      return;
+    }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    try {
+      const r = new SR();
+      r.lang = "it-IT";
+      r.continuous = true;
+      r.interimResults = true;  // faster detection
+      r.onresult = (e) => {
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const transcript = e.results[i][0].transcript;
+          if (this.matches(transcript)) {
+            this.trigger();
+            return;
+          }
+        }
+      };
+      r.onerror = (ev) => {
+        // If permission denied, turn off the feature silently
+        if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+          this.enabled = false;
+          localStorage.setItem("teto-wake", "0");
+          showBubble("Microfono negato — disattivo l'ascolto 😢", {silent:true});
+          render();
+        }
+        // "no-speech" / "aborted" are normal — let onend handle restart
+      };
+      r.onend = () => {
+        this.rec = null;
+        // Auto-restart if still supposed to be running
+        if (this.enabled && !this.paused && !state.listening) {
+          setTimeout(() => this.start(), 300);
+        }
+      };
+      r.start();
+      this.rec = r;
+    } catch (err) {
+      // .start() throws if already started, or without user gesture on first
+      // run. Either way — clear the ref so a later attempt can retry.
+      console.warn("Wake start failed:", err);
+      this.rec = null;
+    }
+  },
+  stop() {
+    if (this.rec) {
+      try { this.rec.onend = null; } catch(e) {}
+      try { this.rec.stop(); } catch(e) {}
+      try { this.rec.abort(); } catch(e) {}
+      this.rec = null;
+    }
+  },
+  pause() {
+    this.paused = true;
+    this.stop();
+  },
+  resume() {
+    this.paused = false;
+    if (this.enabled) setTimeout(() => this.start(), 300);
+  },
+  trigger() {
+    // Wake heard — release mic, then open command recognizer
+    this.pause();
+    haptic(20);
+    setTimeout(() => { toggleMic(); }, 200);
+  },
+  toggle() {
+    if (!this.supported()) {
+      showBubble(TETO.noVoice);
+      return;
+    }
+    this.enabled = !this.enabled;
+    localStorage.setItem("teto-wake", this.enabled ? "1" : "0");
+    if (this.enabled) {
+      showBubble("Dì \"Ehy Teto\" per parlarmi a mani libere~ ♪");
+      this.start();
+    } else {
+      this.stop();
+      showBubble("Parola di attivazione disattivata");
+    }
+  },
+};
 
 /* ─── Theme manager (light / dark / auto) ─── */
 const Theme = {
@@ -2308,10 +2439,15 @@ function toggleMic() {
     recognition?.stop();
     state.listening = false;
     render();
+    // Command mic cancelled by user — restore wake word listener
+    WAKE.resume();
     return;
   }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { showBubble(TETO.noVoice); return; }
+
+  // Pause the wake listener: only one recognizer can be active per tab
+  WAKE.pause();
 
   // CRITICAL: stop any ongoing TTS so the mic doesn't record Teto's own voice
   TTS.stop();
@@ -2339,10 +2475,20 @@ function toggleMic() {
       setTimeout(() => document.getElementById("taskInput")?.focus(), 100);
     }
   };
-  recognition.onerror = () => { state.listening=false; render(); showBubble(TETO.voiceErr, {silent:true}); };
-  recognition.onend   = () => { state.listening=false; render(); };
+  recognition.onerror = () => {
+    state.listening = false;
+    render();
+    showBubble(TETO.voiceErr, {silent:true});
+    WAKE.resume();
+  };
+  recognition.onend = () => {
+    state.listening = false;
+    render();
+    WAKE.resume();
+  };
 
-  // Small delay so any just-cancelled TTS is fully stopped before the mic opens
+  // Small delay so any just-cancelled TTS / wake recognizer is fully stopped
+  // before the command mic opens (mic hardware needs a brief release window).
   setTimeout(() => {
     try { recognition.start(); } catch(e) {}
     state.listening = true;
@@ -2350,7 +2496,7 @@ function toggleMic() {
     showBubble(TETO.listen, {silent:true});
     haptic(15);
     render();
-  }, 120);
+  }, 200);
 }
 
 /* ─── Actions ─── */
@@ -2705,6 +2851,13 @@ function render() {
           <div class="settings-hint">Ogni tanto ti chiede come va, se hai bevuto, ecc.</div>
         </div>
         <div class="toggle ${s.proactiveEnabled?'on':''}" onclick="toggleProactive();render()"></div>
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-label">Parola di attivazione "Ehy Teto"</div>
+          <div class="settings-hint">Dì "Ehy Teto" per aprire il microfono a mani libere. Usa batteria.</div>
+        </div>
+        <div class="toggle ${WAKE.enabled?'on':''}" onclick="WAKE.toggle();render()"></div>
       </div>
       <div class="settings-row">
         <div>
@@ -3124,6 +3277,8 @@ function renderHelp() {
 
       <div class="help-intro">
         Parla o scrivi nel campo principale. Capisco molte cose in italiano — anche se formuli le frasi in modo naturale!
+        <br><br>
+        💡 Attiva <b>"Ehy Teto"</b> nelle impostazioni per aprire il microfono a mani libere: basta dire <i>"Ehy Teto"</i> e poi il comando.
       </div>
 
       ${groups.map(g => `<div class="help-group">
@@ -3223,6 +3378,11 @@ auth.signInAnonymously()
 
     // Kick off proactive questions if enabled
     if (state.proactiveEnabled) scheduleProactive();
+
+    // Start wake-word listener if the user previously enabled it.
+    // Mic permission is cached across sessions so this succeeds silently
+    // after the first time the user has granted access.
+    if (WAKE.enabled) WAKE.start();
 
     // Initial reminder check shortly after load (once tasks arrive)
     setTimeout(() => { checkDueReminders(); render(); }, 2500);
