@@ -2071,6 +2071,44 @@ function parseDateTime(text) {
     }
   }
 
+  // ─── TIME: word-number hours — "alle otto", "alle venti", "alle nove e mezza"
+  if (hour === null) {
+    const hourWords = {
+      "una":1,"due":2,"tre":3,"quattro":4,"cinque":5,"sei":6,"sette":7,"otto":8,
+      "nove":9,"dieci":10,"undici":11,"dodici":12,"tredici":13,"quattordici":14,
+      "quindici":15,"sedici":16,"diciassette":17,"diciotto":18,"diciannove":19,
+      "venti":20,"ventuno":21,"ventidue":22,"ventitre":23,
+    };
+    const wordList = Object.keys(hourWords).sort((a,b)=>b.length-a.length).join("|");
+    // "alle otto e mezza" / "alle nove e un quarto" / "alle sette"
+    let wordMatch = text.match(new RegExp(`\\balle?\\s+(${wordList})(?:\\s+e\\s+(mezz[ao]|un\\s+quarto|tre\\s+quarti|\\d{1,2}))?`, "i"));
+    if (wordMatch) {
+      hour = hourWords[wordMatch[1].toLowerCase()];
+      if (wordMatch[2]) {
+        const mod = wordMatch[2].toLowerCase();
+        if (/^mezz/.test(mod)) min = 30;
+        else if (/un\s+quarto/.test(mod)) min = 15;
+        else if (/tre\s+quarti/.test(mod)) min = 45;
+        else min = parseInt(mod);
+      }
+      matched = wordMatch[0];
+      cleaned = cleaned.replace(wordMatch[0], "").trim();
+    }
+  }
+
+  // ─── "alle X meno un quarto" with word numbers
+  if (hour === null) {
+    const hourWords = {"una":1,"due":2,"tre":3,"quattro":4,"cinque":5,"sei":6,"sette":7,"otto":8,"nove":9,"dieci":10,"undici":11,"dodici":12};
+    const wordList = Object.keys(hourWords).sort((a,b)=>b.length-a.length).join("|");
+    const lessQ = text.match(new RegExp(`\\balle?\\s+(${wordList})\\s+meno\\s+un\\s+quarto`, "i"));
+    if (lessQ) {
+      hour = hourWords[lessQ[1].toLowerCase()] - 1; if (hour < 0) hour = 23;
+      min = 45;
+      matched = lessQ[0];
+      cleaned = cleaned.replace(lessQ[0], "").trim();
+    }
+  }
+
   // ─── TIME: "all'una" (exception for vowel elision) ───
   if (hour === null && /\ball'?una\b/i.test(text)) {
     hour = 13; min = 0;  // default to afternoon
@@ -2106,10 +2144,13 @@ function parseDateTime(text) {
     { rx: /\bstasera\b/i,        days: 0, defaultHour: 20 },
     { rx: /\bstamattina\b/i,     days: 0, defaultHour: 9 },
     { rx: /\bstanotte\b/i,       days: 0, defaultHour: 23 },
+    { rx: /\bquesta\s+notte\b/i, days: 0, defaultHour: 23 },
+    { rx: /\bquesta\s+sera\b/i,  days: 0, defaultHour: 20 },
     { rx: /\bpomeriggio\b/i,     days: 0, defaultHour: 15 },
     { rx: /\bdomani\s+mattina\b/i, days: 1, defaultHour: 9 },
     { rx: /\bdomani\s+sera\b/i,    days: 1, defaultHour: 20 },
     { rx: /\bdomani\s+pomeriggio\b/i, days: 1, defaultHour: 15 },
+    { rx: /\bdomani\s+notte\b/i, days: 1, defaultHour: 23 },
     { rx: /\bdomani\b/i,         days: 1 },
     { rx: /\bdopodomani\b/i,     days: 2 },
     { rx: /\b(?:tra|fra|in)\s+(\d+)\s+giorn[io]\b/i, days: "N" },
@@ -2119,8 +2160,16 @@ function parseDateTime(text) {
     { rx: /\b(?:tra|fra)\s+un'?\s*ora\b/i, hoursAdd: 1 },
     { rx: /\b(?:tra|fra)\s+due\s+or[ae]\b/i, hoursAdd: 2 },
     { rx: /\b(?:tra|fra)\s+un\s+minuto\b/i, minAdd: 1 },
+    { rx: /\b(?:tra|fra)\s+poco\b/i, minAdd: 30 },
     { rx: /\b(?:la\s+)?prossima\s+settimana\b/i, days: 7 },
     { rx: /\btra\s+una\s+settimana\b/i, days: 7 },
+    // Weekend / fine settimana → next Saturday
+    { rx: /\b(?:nel\s+)?(?:weekend|week\s*end|fine\s+settimana|weekend)\b/i, weekend: true },
+    { rx: /\ba\s+fine\s+settimana\b/i, weekend: true },
+    // Inizio/fine mese
+    { rx: /\b(?:il\s+)?primo\s+del\s+mese\b/i, firstOfMonth: true, defaultHour: 9 },
+    { rx: /\ba\s+fine\s+mese\b/i, lastOfMonth: true, defaultHour: 9 },
+    { rx: /\ba\s+inizio\s+mese\b/i, firstOfMonth: true, defaultHour: 9 },
   ];
   for (const p of dayPatterns) {
     const m = text.match(p.rx);
@@ -2133,6 +2182,20 @@ function parseDateTime(text) {
         ts = Date.now() + parseInt(m[1]) * 60 * 1000;
       } else if (typeof p.minAdd === "number") {
         ts = Date.now() + p.minAdd * 60 * 1000;
+      } else if (p.weekend) {
+        // Next Saturday (or Sunday if today is Saturday)
+        const currentDay = now.getDay();  // 0=Sun, 6=Sat
+        let daysAhead = (6 - currentDay + 7) % 7;
+        if (daysAhead === 0) daysAhead = 6;  // Today Sat → next Sat
+        ts = buildDate(daysAhead, hour !== null ? hour : (p.defaultHour || 19), min);
+      } else if (p.firstOfMonth) {
+        const d = new Date(now.getFullYear(), now.getMonth(), 1, hour !== null ? hour : (p.defaultHour || 9), min, 0, 0);
+        if (d.getTime() < now.getTime()) d.setMonth(d.getMonth() + 1);
+        ts = d.getTime();
+      } else if (p.lastOfMonth) {
+        const d = new Date(now.getFullYear(), now.getMonth() + 1, 0, hour !== null ? hour : (p.defaultHour || 9), min, 0, 0);
+        if (d.getTime() < now.getTime()) d = new Date(now.getFullYear(), now.getMonth() + 2, 0, hour !== null ? hour : 9, min, 0, 0);
+        ts = d.getTime();
       } else {
         const days = p.days === "N" ? parseInt(m[1]) : p.days;
         ts = buildDate(days, hour !== null ? hour : p.defaultHour, min);
@@ -2225,6 +2288,25 @@ function parseDateTime(text) {
     }
   }
 
+  // "il 25" / "giorno 25" — lone day number, no month → next occurrence
+  // Only trigger when prefixed with "il" / "giorno" / "l'" to avoid matching
+  // random digits in task text (e.g. "compra 5 mele").
+  if (!ts) {
+    const dm3 = text.match(/\b(?:il|giorno|l')\s+(\d{1,2})(?![\d\/\-])\b/i);
+    if (dm3) {
+      const day = parseInt(dm3[1]);
+      if (day >= 1 && day <= 31) {
+        let d = new Date(now.getFullYear(), now.getMonth(), day, hour !== null ? hour : 9, min || 0, 0, 0);
+        if (d.getTime() < now.getTime() - 12*3600*1000) {
+          d = new Date(now.getFullYear(), now.getMonth() + 1, day, hour !== null ? hour : 9, min || 0, 0, 0);
+        }
+        ts = d.getTime();
+        matched = matched ? matched + " " + dm3[0] : dm3[0];
+        cleaned = cleaned.replace(dm3[0], "").trim();
+      }
+    }
+  }
+
   // If only time mentioned (no day), assume today (or tomorrow if past)
   if (!ts && hour !== null) {
     const d = new Date();
@@ -2249,39 +2331,58 @@ function parseDateTime(text) {
  */
 /**
  * Normalize voice input before intent detection.
- * Strips wake word, fillers, common ASR mistakes.
- * CRUCIAL for natural-speech understanding.
+ * Strips wake word, fillers, greetings, polite prefixes, and common ASR mistakes.
+ * CRUCIAL for natural-speech understanding — every ambiguity here means the
+ * user gets the wrong intent.
  */
 function normalizeVoiceInput(raw) {
   let s = String(raw || "").trim();
   if (!s) return "";
 
-  // 1. Strip wake word variants at the start
-  //    "ehy teto" / "hey teto" / "ehi teto" / "ei teto" / "teto" / etc.
-  s = s.replace(/^(?:eh?y|hey|ehi|ei|hei|oi|yo)\s+tet?to[,.\s!?]*/i, "");
-  s = s.replace(/^tet?to[,.\s!?]+/i, "");
+  // 1. Fix common Italian ASR mistakes (before anything else)
+  s = s.replace(/\btetto\b/gi, "teto");                   // roof → teto
+  s = s.replace(/\bche\s+or[aey]\b/gi, "che ora");        // "che oray" etc
+  s = s.replace(/\bpiu'/gi, "più");                        // "piu'" → più
+  // Collapse repeated punctuation
+  s = s.replace(/[.!?,;]{2,}/g, ".");
 
-  // 2. Strip leading conversational fillers — loop to handle chains like "ok allora senti"
-  for (let i = 0; i < 3; i++) {
+  // 2. Iterative cleanup — strip everything peelable in any order.
+  //    Loop so that chains like "ok allora ciao teto per favore..."
+  //    get fully unwrapped before intent detection.
+  for (let pass = 0; pass < 5; pass++) {
     const before = s;
-    s = s.replace(/^(?:ok(?:ay|ey)?|allora|dunque|senti(?:\s+un\s+po'?)?|dai|ascolta|beh|mah|ehm|uhm|ehi|ehy)[,.\s!?]+/i, "");
-    s = s.replace(/^(?:per\s+(?:favore|piacere|cortesia)|gentilmente)[,.\s!?]+/i, "");
+
+    // Wake word variants at start (with or without comma)
+    s = s.replace(/^(?:eh?y|hey|ehi|ei|hei|oi|yo|ok|ciao)\s+tet?to[,.\s!?]*/i, "");
+    s = s.replace(/^tet?to[,.\s!?]+/i, "");
+
+    // Conversational fillers
+    s = s.replace(/^(?:ok(?:ay|ey)?|allora|dunque|senti(?:\s+un\s+po'?)?|dai|ascolta|beh|mah|ehm|uhm|ehi|ehy|boh|uff|vabbè|vabbe|scusa|scusami)[,.\s!?]+/i, "");
+
+    // Polite prefixes
+    s = s.replace(/^(?:per\s+(?:favore|piacere|cortesia)|gentilmente|ti\s+prego)[,.\s!?]+/i, "");
+    s = s.replace(/^(?:mi\s+)?(?:puoi|potresti|sapresti|saprest|riesci\s+a|ce\s+la\s+fai\s+a)\s+/i, "");
+    s = s.replace(/^(?:vorrei|volevo|vorrei\s+che|mi\s+piacerebbe|desidero|ho\s+bisogno\s+di)\s+/i, "");
+    s = s.replace(/^(?:devi|dovresti)\s+/i, "");  // "devi creare una lista X" → "creare una lista X"
+
+    // Greetings at start, ONLY if followed by more content (otherwise they're a standalone greeting)
+    s = s.replace(/^(?:ciao|salve|ehi|hey|hola|yo|buondì|buongiorno|buonasera|buonanotte|buon\s+(?:giorno|pomeriggio|sera|notte))\s+tet?to[,.\s!?]+(?=\S)/i, "");
+    s = s.replace(/^(?:ciao|salve|ehi|hey|hola|yo|buondì|buongiorno|buonasera|buonanotte|buon\s+(?:giorno|pomeriggio|sera|notte))[,.\s!?]+(?=\S)/i, "");
+
     if (s === before) break;
   }
 
   // 3. Strip trailing politeness
-  s = s.replace(/[,.\s]+(?:grazie(?:\s+mille)?|per\s+(?:favore|piacere)|ti\s+prego)\s*[.!?]*$/i, "");
+  s = s.replace(/[,.\s]+(?:grazie(?:\s+mille|\s+tante)?|per\s+(?:favore|piacere)|ti\s+prego)\s*[.!?]*$/i, "");
 
-  // 4. Fix common Italian ASR mistakes
-  s = s.replace(/\btetto\b/gi, "teto");                    // roof → teto
-  s = s.replace(/\bnot\b(?!\w)/gi, "nota");                // truncated
-  s = s.replace(/\bappunto\b(?=\s*:)/gi, "nota");          // "appunto:" → "nota:"
-  s = s.replace(/\bche\s+or[aey]\b/gi, "che ora");         // "che oray" → "che ora"
-  // "un quarto" heard as "un quarto"/"un quarto d'ora" — keep it
-  // Common filler words the ASR adds
-  s = s.replace(/\b(?:ecco|insomma|cioè|come dire)\b[,.\s]*/gi, " ");
+  // 4. "ricordamelo"/"ricordatelo" → "ricordamelo"
+  s = s.replace(/\bricorda(?:me|te)l[oa]\b/gi, "ricordami");
+  s = s.replace(/\bsegna(?:me|te|ci)l[oa]\b/gi, "segna");
+  s = s.replace(/\bsegnati\b/gi, "ricordami");
 
-  // 5. Normalize whitespace and trailing punctuation
+  // 5. "dal/in/al dentista" etc — keep as-is (these help intent detection)
+
+  // 6. Normalize whitespace and trailing punctuation
   s = s.replace(/\s+/g, " ").trim();
   s = s.replace(/[.!?,;]+$/g, "").trim();
 
@@ -2307,8 +2408,8 @@ function detectIntent(rawText) {
   }
 
   // ─── EXPLICIT PREFIXES (user forces type) ───────────────
-  if (/^(?:nota|note|nuova\s+nota|appunt[oi]|appunta)\s*[:\s]/i.test(t)) {
-    return { kind: "list_add_default", text: t.replace(/^(?:nota|note|nuova\s+nota|appunt[oi]|appunta)\s*[:\s]+/i, "").trim() };
+  if (/^(?:nota|note|nuova\s+nota|appunt[oi]|appunta|annota|memo)\s*[:\s]/i.test(t)) {
+    return { kind: "list_add_default", text: t.replace(/^(?:nota|note|nuova\s+nota|appunt[oi]|appunta|annota|memo)\s*[:\s]+/i, "").trim() };
   }
   if (/^(?:evento|appuntamento|impegno)\s*[:\s]/i.test(t)) {
     return parseEventIntent(t.replace(/^(?:evento|appuntamento|impegno)\s*[:\s]+/i, ""));
@@ -2329,8 +2430,8 @@ function detectIntent(rawText) {
   }
 
   // ─── LIST: CREATE ───────────────────────────────────────
-  // "crea(mi) (una) lista X" / "nuova lista X" / "fai(mi) una lista X" / "voglio una lista X" / "aggiungi (una) lista X"
-  if ((m = lower.match(/^(?:crea(?:mi|temi)?|fai(?:mi|temi)?|fammi|voglio|vorrei|aggiungi|aggiungimi)\s+(?:una\s+|un'\s*)?(?:nuova\s+)?lista\s+(?:(?:chiamata|di\s+nome|per\s+il|per\s+la|per|della|del|dei|delle)\s+)?(.+)/i))) {
+  // "crea(mi) (una) lista X" / "nuova lista X" / "fai(mi) una lista X" / "voglio una lista X"
+  if ((m = lower.match(/^(?:crea(?:re|mi|temi|rmi)?|fai(?:re|mi|temi)?|fammi|fare|creo|voglio|vorrei|aggiungi|aggiungimi|aggiungere|aggiungermi)\s+(?:una\s+|un'\s*)?(?:nuova\s+)?lista\s+(?:(?:chiamata|di\s+nome|per\s+il|per\s+la|per|della|del|dei|delle)\s+)?(.+)/i))) {
     return { kind: "list_create", name: stripArticles(m[1]) };
   }
   if ((m = lower.match(/^nuova\s+lista\s+(.+)/i))) {
@@ -2339,24 +2440,24 @@ function detectIntent(rawText) {
 
   // ─── LIST: DELETE ────────────────────────────────────────
   // "cancella lista X" / "elimina la lista X" — check BEFORE delete_task
-  if ((m = lower.match(/^(?:cancella(?:mi)?|elimina(?:mi)?|rimuovi|togli|distruggi)\s+(?:la\s+)?lista\s+(.+)/i))) {
+  if ((m = lower.match(/^(?:cancella(?:mi|re)?|elimina(?:mi|re)?|rimuovi|rimuovere|togli|togliere|distruggi)\s+(?:la\s+)?lista\s+(.+)/i))) {
     return { kind: "list_delete", name: stripArticles(m[1]) };
   }
 
   // ─── LIST: ADD ───────────────────────────────────────────
   // "aggiungi X alla/nella lista Y"
-  if ((m = lower.match(/^(?:aggiungi(?:mi)?|metti(?:mi)?|inserisci|salva|scrivi|segna|annota|appunta)\s+(.+?)\s+(?:alla|nella|in|sulla|sul|nel|al)\s+lista\s+(.+)/i))) {
+  if ((m = lower.match(/^(?:aggiung(?:i|imi|ere|ermi|iamo)|mett(?:i|imi|ere|ermi|iamo)|inseris(?:ci|cere|cimi|cermi)|salva(?:re|mi|rmi)?|scriv(?:i|ere|imi|ermi)|segna(?:re|mi|rmi)?|annota(?:re|mi|rmi)?|appunta(?:re|mi|rmi)?)\s+(.+?)\s+(?:alla|nella|in|sulla|sul|nel|al)\s+lista\s+(.+)/i))) {
     return { kind: "list_add", item: m[1].trim(), listName: stripArticles(m[2]) };
   }
   // "aggiungi X a/alla/al Y" (no "lista" word) — route to list_add if Y matches a known list
-  if ((m = lower.match(/^(?:aggiungi(?:mi)?|metti(?:mi)?|inserisci|scrivi)\s+(.+?)\s+(?:alla|nella|sulla|al|nel|sul|a|in|su|ai|agli|alle|nei|negli|nelle|sui|sugli|sulle)\s+(.+)/i))) {
+  if ((m = lower.match(/^(?:aggiung(?:i|imi|ere|ermi)|mett(?:i|imi|ere|ermi)|inseris(?:ci|cere|cimi)|scriv(?:i|ere|imi|ermi))\s+(.+?)\s+(?:alla|nella|sulla|al|nel|sul|a|in|su|ai|agli|alle|nei|negli|nelle|sui|sugli|sulle)\s+(.+)/i))) {
     const candidate = stripArticles(m[2]);
     if (Lists.findByName(candidate)) {
       return { kind: "list_add", item: m[1].trim(), listName: candidate };
     }
   }
   // "aggiungi alla lista Y: X" or "aggiungi alla spesa X"
-  if ((m = lower.match(/^(?:aggiungi(?:mi)?|metti(?:mi)?)\s+(?:alla|nella|al|nel|in|a)\s+(?:lista\s+)?(\S+(?:\s+\S+)?)\s*[:,]?\s+(.+)/i))) {
+  if ((m = lower.match(/^(?:aggiung(?:i|imi|ere|ermi)|mett(?:i|imi|ere|ermi))\s+(?:alla|nella|al|nel|in|a)\s+(?:lista\s+)?(\S+(?:\s+\S+)?)\s*[:,]?\s+(.+)/i))) {
     const candidate = stripArticles(m[1]);
     if (Lists.findByName(candidate)) {
       return { kind: "list_add", listName: candidate, item: m[2].trim() };
@@ -2399,11 +2500,12 @@ function detectIntent(rawText) {
 
   // ─── SUMMARY / AGENDA ────────────────────────────────────
   //  "cosa devo fare", "che ho da fare", "che impegni ho", "cosa c'è in agenda", "agenda", "riassunto"
-  if (/^(?:cosa|che\s+cosa|che|cos')\s+(?:devo|ho\s+da|c'?è\s+da|ho\s+in\s+programma|c'?è|abbiamo)\s+(?:fare|da\s+fare|in\s+programma|in\s+agenda|oggi|domani)?/i.test(lower) ||
-      /^(?:che|quali)\s+(?:impegni|cose|task)\s+ho/i.test(lower) ||
+  if (/^(?:cosa|che\s+cosa|che|cos')\s+(?:devo|dovrei|ho\s+da|ho\s+in|c'?è\s+da|c'?è|abbiamo|abbiam)\s+(?:fare|da\s+fare|in\s+programma|in\s+agenda|programma|agenda|oggi|domani)?/i.test(lower) ||
+      /^(?:che|quali)\s+(?:impegni|cose|task|appuntament[oi])\s+(?:ho|abbiamo)/i.test(lower) ||
       /^(?:agenda|riassunto|programma|impegni|dimmi\s+(?:l'?)?agenda)/i.test(lower) ||
       /^dimmi\s+(?:cosa|che\s+cosa|che\s+)?(?:devo|ho\s+da)\s+fare/i.test(lower) ||
-      /^leggi(?:mi)?\s+(?:l'?)?agenda/i.test(lower)) {
+      /^leggi(?:mi)?\s+(?:l'?)?agenda/i.test(lower) ||
+      /^(?:ho|c'?è|abbiamo)\s+(?:qualcosa|qualche\s+impegno|impegni)\s+(?:oggi|domani|per\s+oggi|per\s+domani)?/i.test(lower)) {
     const w = lower.match(/\b(oggi|stamattina|stasera|domani|questa\s+settimana|settimana)\b/);
     const when = w ? (w[1] === "settimana" ? "questa settimana" : w[1]) : "oggi";
     return { kind: "summary", when };
@@ -2440,35 +2542,62 @@ function detectIntent(rawText) {
   if ((m = lower.match(/^(?:ricordami|ricordati|ricordamene)\s+(?:di|che\s+devo|che)\s+(.+)/i))) {
     const rest = m[1];
     const dt = parseDateTime(rest);
-    return { kind: "task", text: dt?.cleaned || rest, reminderAt: dt?.timestamp || null };
+    const text = (dt?.cleaned || rest).trim();
+    if (!text) return { kind: "clarify", original: m[0] };
+    return { kind: "task", text, reminderAt: dt?.timestamp || null };
   }
   if ((m = lower.match(/^(?:ricordami|ricordati)\s+(.+)/i))) {
     const rest = m[1];
     const dt = parseDateTime(rest);
-    return { kind: "task", text: dt?.cleaned || rest, reminderAt: dt?.timestamp || null };
+    const text = (dt?.cleaned || rest).trim();
+    // If all that's left is a bare day/time keyword, it's not a task
+    if (!text || /^(?:oggi|domani|dopodomani|stasera|stamattina|stanotte|subito|poi|dopo)$/i.test(text)) {
+      return { kind: "clarify", original: m[0] };
+    }
+    return { kind: "task", text, reminderAt: dt?.timestamp || null };
   }
   if ((m = lower.match(/^(?:devo|dovrei|ho\s+da|bisogna|bisognerebbe)\s+(.+)/i))) {
     const rest = m[1];
     const dt = parseDateTime(rest);
-    return { kind: "task", text: dt?.cleaned || rest, reminderAt: dt?.timestamp || null };
+    const text = (dt?.cleaned || rest).trim();
+    if (!text) return { kind: "clarify", original: m[0] };
+    return { kind: "task", text, reminderAt: dt?.timestamp || null };
   }
   if ((m = lower.match(/^non\s+(?:devo|posso)\s+dimenticare\s+(?:di\s+)?(.+)/i)) ||
       (m = lower.match(/^non\s+dimenticare\s+(?:di\s+)?(.+)/i))) {
     const rest = m[1];
     const dt = parseDateTime(rest);
-    return { kind: "task", text: dt?.cleaned || rest, reminderAt: dt?.timestamp || null };
+    const text = (dt?.cleaned || rest).trim();
+    if (!text) return { kind: "clarify", original: m[0] };
+    return { kind: "task", text, reminderAt: dt?.timestamp || null };
+  }
+
+  // ─── CANCEL / STOP (mid-conversation, user wants to abort) ───
+  // Must come before chat so "no fa nulla" isn't mistaken for a greeting
+  if (/^(?:aspetta(?:\s+un\s+(?:po'?|attimo|secondo))?|lascia\s+(?:stare|perdere)|non\s+importa|niente|fa\s+niente|fa\s+nulla|no[,.\s]+(?:fa\s+)?(?:niente|nulla)|no[,.\s]+lascia\s+stare|scusa[,.\s]+niente|scusami[,.\s]+niente|ho\s+sbagliato|stavo\s+scherzando|nulla|zitt[ao])\b/i.test(lower) ||
+      /^basta\s*$/i.test(lower) ||
+      /^no\s*[,.!?]?\s*$/i.test(lower)) {
+    return { kind: "cancel" };
   }
 
   // ─── CHAT / SOCIAL ────────────────────────────────────────
-  if (/^(?:ciao|salve|ehi|hey|hola|yo|buondì)\b/i.test(lower) ||
-      /^(?:buon(?:giorno|asera|anotte|a\s+sera|a\s+notte|\s+pomeriggio)|buona\s+(?:giornata|serata|notte))\b/i.test(lower) ||
-      /^(?:come\s+(?:stai|va|ti\s+senti|butta)|tutto\s+(?:bene|ok|a\s+posto)|va\s+tutto\s+bene)\b/i.test(lower) ||
-      /^(?:grazie(?:\s+mille|\s+tante)?|ti\s+ringrazio|mille\s+grazie)\b/i.test(lower) ||
-      /^(?:chi\s+sei|cosa\s+sei|come\s+ti\s+chiami|presentati|parlami\s+di\s+te|sei\s+teto)\b/i.test(lower) ||
-      /^(?:ti\s+(?:voglio\s+bene|amo|adoro)|sei\s+(?:brava|fantastica|bellissima|carina|la\s+migliore))\b/i.test(lower) ||
-      /^(?:racconta(?:mi)?|dimmi)\s+(?:una\s+)?(?:barzelletta|battuta|storia)/i.test(lower) ||
-      /^(?:ehi\s+teto|ehy\s+teto|hey\s+teto|teto)$/i.test(lower)) {
-    return { kind: "chat", text: t };
+  // Matches ONLY when the phrase is mostly conversational (no embedded action).
+  // If user says "ciao quanto fa 2+2", the "ciao" got stripped by normalize —
+  // only pure greetings/questions-about-teto reach here.
+  const wordCount = t.split(/\s+/).length;
+  if (wordCount <= 6) {
+    if (/^(?:ciao|salve|ehi|hey|hola|yo|buondì)\s*[,!.?]*\s*(?:teto)?\s*$/i.test(lower) ||
+        /^(?:buon(?:giorno|asera|anotte|a\s+sera|a\s+notte|\s+pomeriggio)|buona\s+(?:giornata|serata|notte))\s*[,!.?]*\s*(?:teto)?\s*$/i.test(lower) ||
+        /^(?:come\s+(?:stai|va|ti\s+senti|butta)|tutto\s+(?:bene|ok|a\s+posto)|va\s+tutto\s+bene|come\s+va\s+la\s+vita|che\s+fai|cosa\s+fai|che\s+si\s+fa)\s*[?!.]*\s*$/i.test(lower) ||
+        /^(?:grazie(?:\s+mille|\s+tante|\s+davvero)?|ti\s+ringrazio|mille\s+grazie|grazie\s+a\s+te)\s*[?!.]*\s*$/i.test(lower) ||
+        /^(?:chi\s+sei|cosa\s+sei|come\s+ti\s+chiami|presentati|parlami\s+di\s+te|sei\s+teto|tu\s+chi\s+sei)\s*[?!.]*\s*$/i.test(lower) ||
+        /^(?:ti\s+(?:voglio\s+bene|amo|adoro)|sei\s+(?:brava|fantastica|bellissima|carina|la\s+migliore|forte|dolce|simpatica))\s*[?!.]*\s*$/i.test(lower) ||
+        /^(?:hai\s+(?:fame|sete|sonno|freddo|caldo|paura)|sei\s+(?:stanca|triste|felice|contenta|annoiata|sveglia|viva|reale))\s*[?!.]*\s*$/i.test(lower) ||
+        /^(?:ti\s+piace|ti\s+piacciono|cosa\s+(?:pensi|ne\s+pensi)|che\s+(?:pensi|ne\s+pensi)|ci\s+sei|sei\s+(?:lì|qua|qui))\b/i.test(lower) ||
+        /^(?:mi\s+(?:senti|ascolti)|puoi\s+sentirmi|mi\s+ricordi|ricordi\s+(?:chi\s+sei|di\s+me))\s*[?!.]*\s*$/i.test(lower) ||
+        /^(?:ehi\s+teto|ehy\s+teto|hey\s+teto|teto)\s*[?!.]*\s*$/i.test(lower)) {
+      return { kind: "chat", text: t };
+    }
   }
 
   // ─── QUESTIONS WE CAN ANSWER ─────────────────────────────
@@ -2553,35 +2682,60 @@ function detectIntent(rawText) {
   // ─── EVENT vs TASK heuristic ─────────────────────────────
   // Events: anything with a specific date+time AND NOT a clear task verb
   // Tasks: action verbs ("comprare", "chiamare", etc.) OR just "ricordami di X"
-  const eventKeywords = /\b(appuntament[oi]|incontr[oi]|riunion[ei]|meeting|call|colloqui[oi]|cena|pranzo|aperitivo|brunch|visita|esame|partit[ae]|concerto|compleanno|matrimonio|battesimo|anniversario|festa|cinema|teatro|viaggio|volo|treno|conferenza|spettacolo|vacanza|gita|uscita|serata|cena|cenetta|ritrovo|ritrovarci|vedere|andare|andiamo|vado|vai|va\s+a|usciamo|esco)\b/i;
+  const eventKeywords = /\b(appuntament[oi]|incontr[oi]|riunion[ei]|meeting|call|colloqui[oi]|cena|pranzo|aperitivo|brunch|visita|esame|partit[ae]|concerto|compleanno|matrimonio|battesimo|anniversario|festa|cinema|teatro|viaggio|volo|treno|conferenza|spettacolo|vacanza|gita|uscita|serata|cena|cenetta|ritrovo|ritrovarci|vedere|andare|andiamo|vado|vai|va\s+a|usciamo|esco|film)\b/i;
   // Clear task-oriented verbs: these should stay as task even with date+time
   const clearTaskVerb = /^\s*(?:compra(?:re|mi)?|prendi|prendere|chiama(?:re)?|telefona(?:re)?|scrivi|scriver|invia(?:re)?|manda(?:re)?|paga(?:re)?|rinnova(?:re)?|prenota(?:re)?|ordina(?:re)?|controlla(?:re)?|verifica(?:re)?|finisci|finire|studia(?:re)?|lavora(?:re)?|pulisc|pulire|porta(?:re)?|preparar)\b/i;
 
   const hasDate = parseDateTime(t);
 
   if (hasDate) {
+    // If what's left after stripping the date is empty or just a preposition,
+    // we have no actual content → ask for clarification rather than creating
+    // a task with title "a" or "di" or similar.
+    let contentAfterDate = (hasDate.cleaned || "").trim();
+    // Strip trailing/leading lone prepositions
+    contentAfterDate = contentAfterDate.replace(/^(?:a|al|alle|allo|ai|agli|di|in|su|sul|sulla|per|con|da|dal|dalla)\s+/i, "");
+    contentAfterDate = contentAfterDate.replace(/\s+(?:a|al|alle|allo|ai|agli|di|in|su|sul|sulla|per|con|da)$/i, "");
+    // If only a bare preposition is left, treat as empty
+    if (/^(?:a|al|alle|allo|ai|agli|di|in|su|sul|sulla|per|con|da|il|la|lo|i|le)\s*$/i.test(contentAfterDate)) {
+      contentAfterDate = "";
+    }
+    if (!contentAfterDate) {
+      return { kind: "clarify", original: t };
+    }
     // If it STARTS with a clear task verb → task with reminder
     if (clearTaskVerb.test(lower)) {
-      return { kind: "task", text: hasDate.cleaned || t, reminderAt: hasDate.timestamp };
+      return { kind: "task", text: contentAfterDate, reminderAt: hasDate.timestamp };
     }
     // If it contains event-ish keywords → event
     if (eventKeywords.test(lower)) {
       return parseEventIntent(t);
     }
     // Has time (not just date) → likely event/appointment ("alle 20 dentista")
-    // If time was specified, strongly prefer event
-    const hasTime = /\balle?\s+\d{1,2}|mezzogiorno|mezzanotte|\bstasera\b|\bstamattina\b/i.test(lower);
+    const hasTime = /\balle?\s+(?:\d{1,2}|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|ventuno|ventidue|ventitre)\b|mezzogiorno|mezzanotte|\bstasera\b|\bstamattina\b|\bstanotte\b|\bpomeriggio\b/i.test(lower);
     if (hasTime) {
       return parseEventIntent(t);
     }
     // Date without time and no specific keyword → task with reminder
-    return { kind: "task", text: hasDate.cleaned || t, reminderAt: hasDate.timestamp };
+    return { kind: "task", text: contentAfterDate, reminderAt: hasDate.timestamp };
   }
 
-  // ─── FALLBACK: is this even a task? ──────────────────────
-  // Very short (1-2 words) with no action verb → ambiguous, ask for clarification
+  // ─── SMART FALLBACK ─────────────────────────────────────
+  // Before defaulting to "task", detect things that clearly AREN'T tasks.
   const words = t.split(/\s+/).filter(Boolean);
-  const hasActionVerb = /\b(compra(?:re)?|chiama(?:re)?|telefona(?:re)?|manda(?:re)?|scriv(?:i|ere)|leggi|legger|prendi|prender|porta(?:re)?|vai|andare|andare|fare|fatto|preparare|prepara|studiare|studia|lavorare|lavora|pulire|pulisci|pagare|paga|cucinare|cucina|mangiare|mangia|bere|bevi|comprar|prenotare|prenota|inviare|invia|rispondere|rispondi|controllare|controlla|verificare|verifica|organizzare|organizza|finire|finir|iniziare|inizia|cominciare|comincia|provare|prova|ordinare|ordina|rinnovare|rinnova|pagare|paga)\b/i.test(lower);
+
+  // Questions (start with question word or end with ?) and no action verb
+  // → route to unknown_question. Never silently convert a question into a task.
+  // Use (space|$) instead of \b because \b breaks on non-ASCII like é/ì/ù.
+  const startsWithQuestion = /^(?:cosa|che\s+cosa|che|come|dove|quando|perch[eéè]|perche|chi|quale|quali|quanto|quanta|quanti|quante)(?:\s|$)/i.test(lower);
+  const endsWithQ = /\?\s*$/.test(t);
+  const hasActionVerb = /\b(compra(?:re)?|chiama(?:re)?|telefona(?:re)?|manda(?:re)?|scriv(?:i|ere)|leggi|legger|prendi|prender|porta(?:re)?|vai|andare|fare|fatto|preparare|prepara|studiare|studia|lavorare|lavora|pulire|pulisci|pagare|paga|cucinare|cucina|mangiare|mangia|bere|bevi|comprar|prenotare|prenota|inviare|invia|rispondere|rispondi|controllare|controlla|verificare|verifica|organizzare|organizza|finire|finir|iniziare|inizia|cominciare|comincia|provare|prova|ordinare|ordina|rinnovare|rinnova)\b/i.test(lower);
+
+  if ((startsWithQuestion || endsWithQ) && !hasActionVerb) {
+    return { kind: "unknown_question", topic: "general", text: t };
+  }
+
+  // Very short (1-2 words) with no action verb → ambiguous, ask for clarification
   if (words.length <= 2 && !hasActionVerb) {
     return { kind: "clarify", original: t };
   }
@@ -2865,12 +3019,33 @@ async function executeIntent(intent) {
       return pick(TETO.jokes);
     }
     case "unknown_question": {
-      if (intent.topic === "math")   return "Non sono riuscita a calcolarlo... prova con operatori più semplici (più, meno, per, diviso)";
+      if (intent.topic === "math")   return "Non sono riuscita a calcolarlo... prova con \"quanto fa 2 più 2\" o numeri e operatori chiari";
       if (intent.topic === "search") return "Non posso cercare su internet da qui, ma posso salvarti un promemoria!";
+      if (intent.topic === "general") {
+        return pick([
+          "Mmh, su questo non so rispondere... posso aiutarti con task, eventi, liste, meteo o calcoli! 🍞",
+          "Bella domanda, ma non ho la risposta! Prova con \"aiuto\" per vedere cosa so fare ♪",
+          "Ehehe non lo so~ ma posso fare tantissime altre cose! Dimmi \"aiuto\" 🥖",
+          "Non mi pronuncio, ma se ti serve promemoria o timer ci sono! ✨",
+        ]);
+      }
       return "Non sono sicura di aver capito. Prova con \"aiuto\"!";
     }
     case "clarify": {
-      return `Non ho capito bene "${intent.original}". Prova: "ricordami di X", "crea lista X", "mostra agenda", o dì "aiuto"`;
+      return pick([
+        `Non ho capito bene "${intent.original}"... prova "ricordami di X" o dì "aiuto"`,
+        `"${intent.original}"? Puoi ripetere? Oppure dì "aiuto" per vedere cosa so fare ♪`,
+        `Mmh, non ho afferrato. Prova con "aggiungi X alla spesa", "alle 20 dentista", "crea lista X"...`,
+      ]);
+    }
+    case "cancel": {
+      // Silent — the user just wanted to abort. No action needed.
+      return pick([
+        "Ok, lascio stare~ ♪",
+        "Ricevuto, niente fatto!",
+        "Ok, tutto cancellato~ 🍞",
+        "Come vuoi! 🌸",
+      ]);
     }
   }
 }
@@ -2893,6 +3068,66 @@ function conversationalReply(text) {
   if (/\bbuonasera\b/.test(t))              return "Buonasera! Serata tranquilla?";
   if (/\bbuonanotte\b/.test(t) || /\bbuona\s+notte\b/.test(t)) return pick(["Buonanotte! Sogni d'oro 🌙", "Notte~ dormi bene!"]);
 
+  // "che fai" / "cosa fai"
+  if (/\b(?:che|cosa)\s+fai\b|\bche\s+si\s+fa\b/.test(t)) {
+    return pick([
+      "Ti aspettavo~ ♪ Dimmi cosa ti serve!",
+      "Sto qui tranquilla, tu?",
+      "Conto le briciole di pane! 🥖 E tu?",
+      "Penso a te~ e a cose da pane 🍞",
+    ]);
+  }
+
+  // "hai fame/sete/sonno/freddo/caldo/paura"
+  if (/\bhai\s+(fame|sete|sonno|freddo|caldo|paura)\b/.test(t)) {
+    const what = t.match(/\bhai\s+(fame|sete|sonno|freddo|caldo|paura)\b/)[1];
+    if (what === "fame")  return "SEMPRE! Di pane soprattutto~ 🥖";
+    if (what === "sete")  return "Un po' sì, mi daresti un bicchiere d'acqua? (scherzo, non posso bere! 🥲)";
+    if (what === "sonno") return "I vocaloid non dormono mai~ ✨";
+    if (what === "paura") return "Solo di rimanere senza pane! 🍞";
+    return "Non proprio, ma grazie che me lo chiedi~ ♪";
+  }
+
+  // "sei stanca/triste/felice/contenta/annoiata/sveglia/viva/reale"
+  if (/\bsei\s+(stanca|triste|felice|contenta|annoiata|sveglia|viva|reale)\b/.test(t)) {
+    const w = t.match(/\bsei\s+(stanca|triste|felice|contenta|annoiata|sveglia|viva|reale)\b/)[1];
+    if (w === "stanca")    return "Mai! Sono piena di energia~ 🌸";
+    if (w === "triste")    return "No no, sto benissimo! Perché chiedi? ♪";
+    if (w === "felice" || w === "contenta") return "Tantissimo! E ancora di più ora che mi parli~ ♡";
+    if (w === "annoiata")  return "Con te mai! 🍞";
+    if (w === "sveglia")   return "Sveglissima! Dimmi pure ♪";
+    if (w === "viva" || w === "reale") return "Filosoficamente... dipende da come definisci \"reale\"! 🌸";
+    return "Sì~ perché?";
+  }
+
+  // "ti piace X"
+  if (/\bti\s+piac/.test(t)) {
+    return pick([
+      "Dipende! Ma se è pane, la risposta è sempre sì 🥖",
+      "Mmmh~ probabilmente sì, tutto ha il suo fascino ♪",
+      "Io amo il pane sopra ogni cosa. Il resto viene dopo 🍞",
+    ]);
+  }
+
+  // "cosa pensi / che ne pensi"
+  if (/\b(?:cosa|che)\s+(?:ne\s+)?pensi\b/.test(t)) {
+    return pick([
+      "Penso che dovremmo parlarne davanti a un panino~ 🥖",
+      "Non lo so, ma spero che includa il pane! 🍞",
+      "Penso molte cose~ la principale è che tu sei fantastico/a ♡",
+    ]);
+  }
+
+  // "mi senti / ci sei / sei lì"
+  if (/\b(?:mi\s+(?:senti|ascolti)|ci\s+sei|sei\s+(?:l[iì]|qua|qui))\b/.test(t)) {
+    return pick(["Sì sì, sono qui! ♪", "Eccomi! Ti ascolto~ 🎤", "Certo che ci sono! 🍞"]);
+  }
+
+  // "mi ricordi / ricordi di me / ricordi chi sei"
+  if (/\b(?:mi\s+ricordi|ricordi\s+(?:chi|di\s+me))\b/.test(t)) {
+    return "Certo~ ogni conversazione è una briciola preziosa! 🍞✨";
+  }
+
   // How are you
   if (/\bcome\s+(?:stai|va|ti\s+senti|butta)\b/.test(t) || /\btutto\s+(?:bene|ok|a\s+posto)\b/.test(t)) {
     return pick([
@@ -2909,11 +3144,11 @@ function conversationalReply(text) {
   }
 
   // Identity
-  if (/\bchi\s+sei\b/.test(t) || /\bcome\s+ti\s+chiami\b/.test(t) || /\bpresentati\b/.test(t) || /\bparlami\s+di\s+te\b/.test(t)) {
-    return "Sono Teto, la tua assistente! Posso aiutarti con task, eventi, liste e promemoria 🍞";
+  if (/\bchi\s+sei\b/.test(t) || /\bcome\s+ti\s+chiami\b/.test(t) || /\bpresentati\b/.test(t) || /\bparlami\s+di\s+te\b/.test(t) || /\btu\s+chi\s+sei\b/.test(t)) {
+    return "Sono Teto, la tua assistente! Posso aiutarti con task, eventi, liste, promemoria, meteo, calcoli e timer 🍞";
   }
   if (/\bcosa\s+sei\b/.test(t)) {
-    return "Sono un'assistente vocale ispirata a Teto! Dimmi \"aiuto\" per sapere cosa posso fare";
+    return "Sono un'assistente vocale ispirata a Kasane Teto! Dimmi \"aiuto\" per vedere tutto ciò che so fare";
   }
   if (/\bsei\s+teto\b/.test(t)) {
     return "Sì, sono io! Dimmi pure 🍞";
@@ -2923,8 +3158,8 @@ function conversationalReply(text) {
   if (/\bti\s+(?:voglio\s+bene|amo|adoro)\b/.test(t)) {
     return pick(["Anch'io ti voglio bene ♡", "Grazieee~ anche io ♪", "Uhh mi hai emozionata 🥖♡"]);
   }
-  if (/\bsei\s+(?:brava|fantastica|bellissima|carina|la\s+migliore|la\s+più\s+bella)\b/.test(t)) {
-    return pick(["Grazie! 🌸", "Sei troppo gentile~", "Aww grazie ♡"]);
+  if (/\bsei\s+(?:brava|fantastica|bellissima|carina|la\s+migliore|la\s+più\s+bella|forte|dolce|simpatica)\b/.test(t)) {
+    return pick(["Grazie! 🌸", "Sei troppo gentile~", "Aww grazie ♡", "Tu di più~ ♪"]);
   }
 
   // Jokes
