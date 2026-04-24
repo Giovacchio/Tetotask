@@ -1106,6 +1106,97 @@ firebase.initializeApp(FIREBASE_CONFIG);
 const db   = firebase.firestore();
 const auth = firebase.auth();
 
+/* ═══════════════════════════════════════════════════════════════
+   👤 ACCOUNT — anonymous by default, can upgrade to Google
+   for cross-device sync of lists / tasks / events.
+   ═══════════════════════════════════════════════════════════════ */
+const Account = {
+  isAnonymous: true,
+  displayName: null,
+  email: null,
+
+  update(user) {
+    if (!user) return;
+    this.isAnonymous = !!user.isAnonymous;
+    this.displayName = user.displayName || null;
+    this.email = user.email || null;
+  },
+
+  async linkGoogle() {
+    // Link the current anonymous account with Google so data migrates.
+    // If the Google account already exists (user logged in previously on
+    // another device) we must sign into THAT account instead of linking.
+    try {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      const currentUser = auth.currentUser;
+      if (currentUser && currentUser.isAnonymous) {
+        try {
+          const result = await currentUser.linkWithPopup(provider);
+          this.update(result.user);
+          showBubble("Account collegato! Le tue liste ora ti seguono ovunque~ 🌍");
+          return true;
+        } catch (err) {
+          // credential-already-in-use → the Google account exists already.
+          // Sign into it (losing the anonymous data on THIS device, but the
+          // other device's data will appear, which is what the user wants).
+          if (err.code === "auth/credential-already-in-use" || err.code === "auth/email-already-in-use") {
+            const credential = err.credential;
+            const result = await auth.signInWithCredential(credential);
+            this.update(result.user);
+            state.uid = result.user.uid;
+            // Reattach all listeners to the new uid
+            listenToTasks();
+            Lists.resubscribe();
+            Calendar.resubscribe();
+            showBubble("Accesso riuscito! Carico i tuoi dati dal cloud~ ☁️");
+            return true;
+          }
+          throw err;
+        }
+      } else {
+        // Not anonymous → just sign in normally
+        const result = await auth.signInWithPopup(provider);
+        this.update(result.user);
+        state.uid = result.user.uid;
+        listenToTasks();
+        Lists.resubscribe();
+        Calendar.resubscribe();
+        showBubble("Accesso riuscito~ ☁️");
+        return true;
+      }
+    } catch (err) {
+      console.error("Google sign-in failed:", err);
+      if (err.code === "auth/popup-blocked") {
+        showBubble("Il browser ha bloccato il popup — consenti i popup e riprova");
+      } else if (err.code === "auth/popup-closed-by-user") {
+        // User cancelled — silent
+      } else {
+        showBubble("Accesso non riuscito 😢");
+      }
+      return false;
+    }
+  },
+
+  async signOut() {
+    if (!confirm("Disconnettersi? I dati resteranno nel cloud ma non saranno più visibili qui.")) return;
+    try {
+      await auth.signOut();
+      // Auto-login as anonymous so app keeps working
+      const cred = await auth.signInAnonymously();
+      this.update(cred.user);
+      state.uid = cred.user.uid;
+      listenToTasks();
+      Lists.resubscribe();
+      Calendar.resubscribe();
+      showBubble("Disconnesso~ torni come ospite");
+      render();
+    } catch (err) {
+      console.error(err);
+      showBubble("Errore nella disconnessione");
+    }
+  },
+};
+
 /* ─── Data ─── */
 const CATS = [
   { id:"personale", label:"Personale", emoji:"🎵" },
@@ -1255,27 +1346,80 @@ function computeMath(exprRaw) {
   if (!s) return null;
   // Pad with spaces so "più" / "è" (non-ASCII word chars break \b) match via " X "
   s = " " + s + " ";
-  // Italian words → operators (space-delimited to sidestep \b / Unicode issues)
+
+  // 0. Normalize common OCR/ASR variations
+  s = s.replace(/×/g, "*").replace(/÷/g, "/").replace(/−/g, "-").replace(/,/g, ".");
+
+  // 1. Convert Italian word numbers to digits (longest first)
+  const wordNums = [
+    ["centouno",101],["centodue",102],["centodieci",110],["duecento",200],["trecento",300],
+    ["quattrocento",400],["cinquecento",500],["seicento",600],["settecento",700],["ottocento",800],
+    ["novecento",900],["mille",1000],["duemila",2000],
+    ["diciannove",19],["diciotto",18],["diciassette",17],["sedici",16],["quindici",15],
+    ["quattordici",14],["tredici",13],["dodici",12],["undici",11],
+    ["ventuno",21],["ventidue",22],["ventitre",23],["ventiquattro",24],["venticinque",25],
+    ["trentuno",31],["trentadue",32],
+    ["novanta",90],["ottanta",80],["settanta",70],["sessanta",60],["cinquanta",50],
+    ["quaranta",40],["trenta",30],["venti",20],["dieci",10],
+    ["nove",9],["otto",8],["sette",7],["sei",6],["cinque",5],["quattro",4],
+    ["tre",3],["due",2],["zero",0],
+    ["uno",1],["un",1],
+  ];
+  for (const [w, n] of wordNums) {
+    s = s.replace(new RegExp(`\\b${w}\\b`, "g"), ` ${n} `);
+  }
+
+  // 2. Unary operators (before binary ones, so "radice di 4" becomes "Math.sqrt(4)")
+  //    radice (quadrata) di X → Math.sqrt(X)
+  s = s.replace(/\bradice\s+(?:quadrata\s+)?di\s+/g, " Math.sqrt(");
+  s = s.replace(/\b(?:valore\s+assoluto|modulo)\s+di\s+/g, " Math.abs(");
+  //    X al quadrato → (X)**2;  X al cubo → (X)**3
+  s = s.replace(/(\d+(?:\.\d+)?)\s+al\s+quadrato\b/g, "($1)**2");
+  s = s.replace(/(\d+(?:\.\d+)?)\s+al\s+cubo\b/g, "($1)**3");
+
+  // 3. Binary operators — Italian words → symbols (space-delimited)
   s = s.replace(/\s+più\s+/g, " + ");
-  s = s.replace(/^più\s+/g, " + ");          // safety: leading "più"
+  s = s.replace(/^\s*più\s+/g, " + ");
+  s = s.replace(/\bpiu\b/g, " + ");                // ASR "piu" without accent
+  s = s.replace(/\bsommato\s+a\s+/g, " + ");
+  s = s.replace(/\bsomma\s+(?:di|tra|fra)\s+/g, " ");
   s = s.replace(/\bmeno\b/g, " - ");
-  s = s.replace(/\b(?:moltiplicato\s+per|moltiplicato|per|volte|x)\b/g, " * ");
-  s = s.replace(/\b(?:diviso\s+per|diviso|fratto|su)\b/g, " / ");
-  s = s.replace(/\b(?:elevato\s+alla?|elevato|alla)\b/g, " ** ");
-  // Percentage: "20% di 150" → "(20/100)*150"
-  s = s.replace(/(\d+(?:[.,]\d+)?)\s*%\s*di\s+/g, "($1/100)*");
-  // Decimal comma → point
-  s = s.replace(/(\d+),(\d+)/g, "$1.$2");
-  // "N e M" as addition (only between numbers)
+  s = s.replace(/\b(?:sottratto|sottrai)\s+(?:a|da)\s+/g, " - ");
+  s = s.replace(/\b(?:moltiplicato\s+(?:per|con)|moltiplicato|per|volte|times|x)\b/g, " * ");
+  s = s.replace(/\bprodotto\s+(?:di|tra|fra)\s+/g, " ");
+  s = s.replace(/\b(?:diviso\s+(?:per|con)|diviso|fratto|su|in)\b/g, " / ");
+  s = s.replace(/\belevato\s+alla?\s+/g, " ** ");
+  s = s.replace(/\belevato\s+/g, " ** ");
+  s = s.replace(/\balla\s+(\d)/g, " ** $1");         // "2 alla 10" after "elevato" stripped
+  s = s.replace(/\^/g, "**");                         // common math symbol
+
+  // 4. Percentage: "20% di 150" → "(20/100)*150"  |  "X% di Y" | "il X percento di Y"
+  s = s.replace(/(\d+(?:\.\d+)?)\s*%\s*di\s+/g, "($1/100)*");
+  s = s.replace(/(\d+(?:\.\d+)?)\s*(?:percento|per\s+cento)\s+(?:di|sul?|sulla|sul)\s+/g, "($1/100)*");
+
+  // 5. "N e M" as addition (only between numbers)
   s = s.replace(/(\d+)\s+e\s+(\d+)/g, "$1 + $2");
-  // Strip filler: di/il/la/i/gli/le/fa/sono/uguale (and "è" via spaces)
+
+  // 6. Strip filler: di/il/la/i/gli/le/fa/sono/uguale and the isolated "è"
   s = s.replace(/\s+è\s+/g, " ");
-  s = s.replace(/\b(?:di|il|la|i|gli|le|fa|sono|uguale|uguali)\b/g, " ");
-  // Collapse whitespace
+  s = s.replace(/\b(?:di|il|la|i|gli|le|fa|sono|uguale|uguali|quanto|quant|risultato|risultato\s+di)\b/g, " ");
+
+  // 7. Close any open Math.sqrt(...) / Math.abs(...) that didn't get a closing paren.
+  //    Simple heuristic: count '(' and ')' and append missing ')'.
+  const openParens  = (s.match(/\(/g) || []).length;
+  const closeParens = (s.match(/\)/g) || []).length;
+  if (openParens > closeParens) s += ")".repeat(openParens - closeParens);
+
+  // 8. Collapse whitespace
   s = s.replace(/\s+/g, " ").trim();
-  // Safety: allow only digits, operators, parens, dot, space
-  if (!/^[\d+\-*/().\s]+$/.test(s)) return null;
+
+  // 9. Safety: only allow a restricted alphabet — digits, operators, parens,
+  //    dot, space, and the literal "Math.sqrt" / "Math.abs" / "**".
+  //    We check by stripping those whitelisted tokens first.
+  let check = s.replace(/Math\.(?:sqrt|abs)/g, "").replace(/\*\*/g, "");
+  if (!/^[\d+\-*/().\s]+$/.test(check)) return null;
   if (/[+\-*/]\s*$/.test(s)) return null;
+
   try {
     // eslint-disable-next-line no-new-func
     const fn = new Function("return (" + s + ");");
@@ -1722,9 +1866,15 @@ const WAKE = {
       };
       r.onend = () => {
         this.rec = null;
-        // Auto-restart if still supposed to be running
+        // Auto-restart if still supposed to be running, but with a LONG delay.
+        // Chromium's continuous recognizer ends on every silence gap; a short
+        // restart causes the OS mic-indicator and "mic open" chime to fire
+        // repeatedly. 4 seconds is long enough that the chime isn't
+        // perceptible as flickering, short enough that wake latency stays
+        // under ~5s after the user speaks.
         if (this.enabled && !this.paused && !state.listening) {
-          setTimeout(() => this.start(), 300);
+          clearTimeout(this._restartT);
+          this._restartT = setTimeout(() => this.start(), 4000);
         }
       };
       r.start();
@@ -1994,20 +2144,83 @@ function parseDateTime(text) {
   }
 
   // Day names (lunedì, martedì, ...)
+  // Use space/punct boundaries instead of \b because \b doesn't work around
+  // non-ASCII chars like ì — regex /\bvenerdì\b/ would fail in Italian.
   if (!ts) {
     const dayNames = ["domenica","lunedì","martedì","mercoledì","giovedì","venerdì","sabato"];
     const shortNames = ["domenica","lunedi","martedi","mercoledi","giovedi","venerdi","sabato"];
+    const padded = " " + text.toLowerCase() + " ";
     for (let i = 0; i < 7; i++) {
-      const rx = new RegExp(`\\b(?:(?:il\\s+|di\\s+|questo\\s+|prossimo\\s+)?)(${dayNames[i]}|${shortNames[i]})\\b`, "i");
-      const m = text.match(rx);
+      const rx = new RegExp(`(?:^|[\\s,.!?])(?:(?:il|di|questo|prossimo)\\s+)?(${dayNames[i]}|${shortNames[i]})(?=[\\s,.!?]|$)`, "i");
+      const m = padded.match(rx);
       if (m) {
         const currentDay = now.getDay();
         let daysAhead = (i - currentDay + 7) % 7;
         if (daysAhead === 0) daysAhead = 7;
         ts = buildDate(daysAhead, hour !== null ? hour : 9, min);
-        matched = matched ? matched + " " + m[0] : m[0];
-        cleaned = cleaned.replace(m[0], "").trim();
+        const captured = m[1];
+        matched = matched ? matched + " " + captured : captured;
+        // Remove only the day-name token from the cleaned text (preserve prefixes)
+        cleaned = cleaned.replace(new RegExp(captured, "i"), "").trim();
         break;
+      }
+    }
+  }
+
+  // Explicit date: "22 dicembre", "il 22 dicembre", "22 dicembre 2026",
+  //                "dicembre 22", "22/12", "22-12", "22/12/2026"
+  if (!ts) {
+    const months = {
+      gennaio:0, gen:0,
+      febbraio:1, feb:1,
+      marzo:2, mar:2,
+      aprile:3, apr:3,
+      maggio:4, mag:4,
+      giugno:5, giu:5,
+      luglio:6, lug:6,
+      agosto:7, ago:7,
+      settembre:8, set:8, sett:8,
+      ottobre:9, ott:9,
+      novembre:10, nov:10,
+      dicembre:11, dic:11,
+    };
+    const monthNames = Object.keys(months).join("|");
+
+    // "22 dicembre" or "il 22 dicembre" or "22 dicembre 2026"
+    let dm;
+    let rx1 = new RegExp(`\\b(?:il\\s+|l'\\s*)?(\\d{1,2})\\s+(${monthNames})(?:\\s+(\\d{4}))?\\b`, "i");
+    if ((dm = text.match(rx1))) {
+      const day = parseInt(dm[1]);
+      const monthIdx = months[dm[2].toLowerCase()];
+      const year = dm[3] ? parseInt(dm[3]) : now.getFullYear();
+      if (day >= 1 && day <= 31) {
+        const d = new Date(year, monthIdx, day, hour !== null ? hour : 9, min || 0, 0, 0);
+        // If year not specified and the date is in the past, roll to next year
+        if (!dm[3] && d.getTime() < now.getTime() - 12*3600*1000) {
+          d.setFullYear(year + 1);
+        }
+        ts = d.getTime();
+        matched = matched ? matched + " " + dm[0] : dm[0];
+        cleaned = cleaned.replace(dm[0], "").trim();
+      }
+    }
+    // Numeric "22/12" or "22-12" or "22/12/2026"
+    if (!ts) {
+      let rx2 = /\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/;
+      if ((dm = text.match(rx2))) {
+        const day = parseInt(dm[1]);
+        const monthIdx = parseInt(dm[2]) - 1;
+        let year = dm[3] ? parseInt(dm[3]) : now.getFullYear();
+        if (year < 100) year += 2000;
+        if (day >= 1 && day <= 31 && monthIdx >= 0 && monthIdx <= 11) {
+          const d = new Date(year, monthIdx, day, hour !== null ? hour : 9, min || 0, 0, 0);
+          if (!dm[3] && d.getTime() < now.getTime() - 12*3600*1000) {
+            d.setFullYear(year + 1);
+          }
+          ts = d.getTime();
+          matched = matched ? matched + " " + dm[0] : dm[0];
+          cleaned = cleaned.replace(dm[0], "").trim();
+        }
       }
     }
   }
@@ -2270,14 +2483,18 @@ function detectIntent(rawText) {
     return { kind: "weather", city: null, when: "tomorrow" };
   }
 
-  // MATH — "quanto fa X" / "calcola X" / "quanto è X"
-  if ((m = lower.match(/^(?:quanto\s+(?:fa|è|sono|vale)|calcola(?:mi)?|fammi\s+il\s+conto\s+di|fa)\s+(.+)/i))) {
+  // MATH — "quanto fa X" / "calcola X" / "quanto è X" / "fai X+Y" / "risolvi X"
+  if ((m = lower.match(/^(?:quanto\s+(?:fa|è|sono|vale|viene|fanno)|calcola(?:mi|temi)?|fammi\s+il\s+conto\s+di|fai(?:mi)?|risolvi(?:mi)?|qual\s+è\s+il\s+risultato\s+di|il\s+risultato\s+di|risultato\s+di|somma\s+(?:di|tra|fra)|prodotto\s+(?:di|tra|fra)|differenza\s+(?:di|tra|fra)|fa)\s+(.+)/i))) {
     const result = computeMath(m[1]);
     if (result !== null) return { kind: "math", expr: m[1].trim(), result };
     return { kind: "unknown_question", topic: "math" };
   }
-  // Standalone expression like "15 * 3" or "2+2"
-  if (/^[\d\s+\-*/().,]+$/.test(t) && /[+\-*/]/.test(t) && /\d/.test(t)) {
+  // Standalone math: "15 * 3" / "2+2" / "radice di 16" / "3 al quadrato" / "20% di 150"
+  if (/^[\d\s+\-*/().,%]+$/.test(t) && /[+\-*/%]/.test(t) && /\d/.test(t)) {
+    const result = computeMath(t);
+    if (result !== null) return { kind: "math", expr: t, result };
+  }
+  if (/\bradice\s+(?:quadrata\s+)?di\b|\bal\s+quadrato\b|\bal\s+cubo\b|\bpercento\s+di\b|\b\d+%\s*di\b/i.test(lower)) {
     const result = computeMath(t);
     if (result !== null) return { kind: "math", expr: t, result };
   }
@@ -2334,14 +2551,30 @@ function detectIntent(rawText) {
   }
 
   // ─── EVENT vs TASK heuristic ─────────────────────────────
-  const eventKeywords = /\b(appuntament[oi]|incontr[oi]|riunion[ei]|meeting|call|colloqui[oi]|cena|pranzo|aperitivo|brunch|visita|esame|partit[ae]|concerto|compleanno|matrimonio|battesimo|anniversario|festa|cinema|teatro|viaggio|volo|treno|conferenza|spettacolo)\b/i;
-  const hasDate = parseDateTime(t);
-  if (eventKeywords.test(lower) && hasDate) {
-    return parseEventIntent(t);
-  }
+  // Events: anything with a specific date+time AND NOT a clear task verb
+  // Tasks: action verbs ("comprare", "chiamare", etc.) OR just "ricordami di X"
+  const eventKeywords = /\b(appuntament[oi]|incontr[oi]|riunion[ei]|meeting|call|colloqui[oi]|cena|pranzo|aperitivo|brunch|visita|esame|partit[ae]|concerto|compleanno|matrimonio|battesimo|anniversario|festa|cinema|teatro|viaggio|volo|treno|conferenza|spettacolo|vacanza|gita|uscita|serata|cena|cenetta|ritrovo|ritrovarci|vedere|andare|andiamo|vado|vai|va\s+a|usciamo|esco)\b/i;
+  // Clear task-oriented verbs: these should stay as task even with date+time
+  const clearTaskVerb = /^\s*(?:compra(?:re|mi)?|prendi|prendere|chiama(?:re)?|telefona(?:re)?|scrivi|scriver|invia(?:re)?|manda(?:re)?|paga(?:re)?|rinnova(?:re)?|prenota(?:re)?|ordina(?:re)?|controlla(?:re)?|verifica(?:re)?|finisci|finire|studia(?:re)?|lavora(?:re)?|pulisc|pulire|porta(?:re)?|preparar)\b/i;
 
-  // ─── TASK WITH REMINDER ──────────────────────────────────
+  const hasDate = parseDateTime(t);
+
   if (hasDate) {
+    // If it STARTS with a clear task verb → task with reminder
+    if (clearTaskVerb.test(lower)) {
+      return { kind: "task", text: hasDate.cleaned || t, reminderAt: hasDate.timestamp };
+    }
+    // If it contains event-ish keywords → event
+    if (eventKeywords.test(lower)) {
+      return parseEventIntent(t);
+    }
+    // Has time (not just date) → likely event/appointment ("alle 20 dentista")
+    // If time was specified, strongly prefer event
+    const hasTime = /\balle?\s+\d{1,2}|mezzogiorno|mezzanotte|\bstasera\b|\bstamattina\b/i.test(lower);
+    if (hasTime) {
+      return parseEventIntent(t);
+    }
+    // Date without time and no specific keyword → task with reminder
     return { kind: "task", text: hasDate.cleaned || t, reminderAt: hasDate.timestamp };
   }
 
@@ -2771,23 +3004,30 @@ const Calendar = {
     const today = new Date();
     this.selectedDate = dateKey(today.getFullYear(), today.getMonth(), today.getDate());
     // Subscribe to events if not already
-    if (state.uid && !this.unsub) {
-      this.unsub = db.collection("users").doc(state.uid).collection("events")
-        .onSnapshot(snap => {
-          const grouped = {};
-          snap.docs.forEach(d => {
-            const ev = { id: d.id, ...d.data() };
-            if (!grouped[ev.date]) grouped[ev.date] = [];
-            grouped[ev.date].push(ev);
-          });
-          // Sort by time inside each day
-          Object.values(grouped).forEach(arr => {
-            arr.sort((a,b) => (a.time||"99:99").localeCompare(b.time||"99:99"));
-          });
-          this.events = grouped;
-          if (this.open_) render();
+    if (state.uid && !this.unsub) this._sub();
+  },
+  _sub() {
+    this.unsub = db.collection("users").doc(state.uid).collection("events")
+      .onSnapshot(snap => {
+        const grouped = {};
+        snap.docs.forEach(d => {
+          const ev = { id: d.id, ...d.data() };
+          if (!grouped[ev.date]) grouped[ev.date] = [];
+          grouped[ev.date].push(ev);
         });
-    }
+        // Sort by time inside each day
+        Object.values(grouped).forEach(arr => {
+          arr.sort((a,b) => (a.time||"99:99").localeCompare(b.time||"99:99"));
+        });
+        this.events = grouped;
+        // Partial re-render: only rebuild the calendar overlay if it's open.
+        // Avoids the full-page reload effect when events sync from another device.
+        if (this.open_) renderCalendarOnly();
+      });
+  },
+  resubscribe() {
+    if (this.unsub) { try { this.unsub(); } catch(e) {} this.unsub = null; }
+    if (state.uid) this._sub();
   },
   close() {
     this.open_ = false;
@@ -2912,7 +3152,7 @@ const Lists = {
         for (const l of this.lists) {
           if (!this.unsubItems[l.id]) this.subscribeItems(l.id);
         }
-        if (this.open_) render();
+        if (this.open_) renderListsOnly();
       });
   },
   subscribeItems(listId) {
@@ -2920,8 +3160,18 @@ const Lists = {
       .collection("lists").doc(listId).collection("items")
       .orderBy("ts","desc").onSnapshot(snap => {
         this.items[listId] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        if (this.open_) render();
+        if (this.open_) renderListsOnly();
       });
+  },
+  resubscribe() {
+    if (this.unsubLists) { try { this.unsubLists(); } catch(e) {} this.unsubLists = null; }
+    for (const k of Object.keys(this.unsubItems)) {
+      try { this.unsubItems[k](); } catch(e) {}
+      delete this.unsubItems[k];
+    }
+    this.lists = [];
+    this.items = {};
+    if (state.uid) this.subscribe();
   },
   open(listId = null) {
     this.open_ = true;
@@ -3091,6 +3341,7 @@ function notify(title, body) {
 /* ─── Due reminders checker ─── */
 function checkDueReminders() {
   const now = Date.now();
+  let fired = false;
   for (const t of state.tasks) {
     if (t.done || !t.reminderAt) continue;
     if (state.notifiedTasks.has(t.id)) continue;
@@ -3098,15 +3349,25 @@ function checkDueReminders() {
       state.notifiedTasks.add(t.id);
       showBubble(TETO.overdue(t.text));
       notify("TetoTask 🍞", `${t.text} — è il momento!`);
+      fired = true;
     } else if (t.reminderAt - now <= 5*60*1000) {
-      // within 5 minutes
       state.notifiedTasks.add(t.id);
       showBubble(TETO.dueSoon(t.text));
       notify("TetoTask 🍞", `${t.text} — tra poco!`);
+      fired = true;
     }
   }
+  return fired;
 }
-setInterval(() => { if (state.ready) { checkDueReminders(); render(); } }, 60000);
+// Only re-render when something actually changes, and never when calendar/lists
+// are open (avoids the disruptive full-page refresh the user complained about).
+setInterval(() => {
+  if (!state.ready) return;
+  const fired = checkDueReminders();
+  if (fired && !Calendar.open_ && !Lists.open_ && !state.showSettings && !state.showHelp) {
+    render();
+  }
+}, 60000);
 
 /* ─── Proactive Teto questions ─── */
 let proactiveTimer = null;
@@ -3268,7 +3529,12 @@ function listenToTasks() {
   if (unsubFirestore) unsubFirestore();
   unsubFirestore = tasksRef().orderBy("ts","desc").onSnapshot(snap => {
     state.tasks = snap.docs.map(d => ({ id:d.id, ...d.data() }));
-    render();
+    // Don't force a full re-render if user is inside an overlay — they'd
+    // see the overlay flicker / lose scroll for no reason. Tasks list
+    // is only visible on the main screen.
+    if (!Calendar.open_ && !Lists.open_ && !state.showSettings && !state.showHelp) {
+      render();
+    }
   }, err => {
     console.error("Firestore listen error:", err);
   });
@@ -3688,6 +3954,16 @@ function render() {
       </div>
       <div class="settings-row">
         <div>
+          <div class="settings-label">${Account.isAnonymous ? "☁️ Sincronizza tra dispositivi" : `☁️ Collegato: ${esc(Account.displayName || Account.email || "account")}`}</div>
+          <div class="settings-hint">${Account.isAnonymous ? "Accedi con Google per vedere le stesse liste e task su PC e telefono" : "I tuoi dati sono sincronizzati"}</div>
+        </div>
+        ${Account.isAnonymous
+          ? `<button class="reminder-clear primary" onclick="Account.linkGoogle().then(ok=>{if(ok)render()})">Accedi</button>`
+          : `<button class="reminder-clear" onclick="Account.signOut()">Esci</button>`
+        }
+      </div>
+      <div class="settings-row">
+        <div>
           <div class="settings-label">Domande di Teto</div>
           <div class="settings-hint">Ogni tanto ti chiede come va, se hai bevuto, ecc.</div>
         </div>
@@ -3726,7 +4002,7 @@ function render() {
           placeholder="Parla o scrivi: task, evento, nota..."
           oninput="state.input=this.value"
           onkeydown="if(event.key==='Enter')addTask()">
-        <button class="send-btn" onclick="addTask()" ${s.input.trim()?"":'disabled'}>${ICONS.send}</button>
+        <button class="send-btn" onclick="addTask()">${ICONS.send}</button>
       </div>
       <div class="cat-row">
         ${CATS.map(c=>`<button class="cat-btn ${s.cat===c.id?"on":"off"}" onclick="state.cat='${c.id}';render()">${c.emoji} ${c.label}</button>`).join("")}
@@ -3816,6 +4092,34 @@ function render() {
   }
 }
 
+/**
+ * Partial re-renders: update only the calendar or lists overlay instead
+ * of rebuilding the entire #app innerHTML. This fixes the "click on day
+ * reloads the whole calendar" bug — the overlay now updates in place,
+ * keeping scroll position and avoiding a visual flash.
+ */
+function renderCalendarOnly() {
+  if (!Calendar.open_) { render(); return; }
+  const existing = document.querySelector(".cal-overlay");
+  if (!existing) { render(); return; }
+  // renderCalendar() returns the full overlay markup including .cal-overlay
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = renderCalendar();
+  const fresh = wrapper.firstElementChild;
+  if (fresh) existing.replaceWith(fresh);
+  else render();
+}
+function renderListsOnly() {
+  if (!Lists.open_) { render(); return; }
+  const existing = document.querySelector(".lists-overlay");
+  if (!existing) { render(); return; }
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = renderLists();
+  const fresh = wrapper.firstElementChild;
+  if (fresh) existing.replaceWith(fresh);
+  else render();
+}
+
 function renderCalendar() {
   const c = Calendar;
   const holidays = getItalianHolidays(c.year);
@@ -3843,7 +4147,7 @@ function renderCalendar() {
     if (isToday) classes.push("today");
     if (isSelected) classes.push("selected");
     if (isHoliday) classes.push("holiday");
-    cells.push(`<div class="${classes.join(' ')}" onclick="Calendar.selectDay('${k}');render()">
+    cells.push(`<div class="${classes.join(' ')}" onclick="Calendar.selectDay('${k}');renderCalendarOnly()">
       <div class="cal-cell-num">${d}</div>
       <div class="cal-dots">
         ${hasEvents ? '<span class="cal-dot event"></span>' : ''}
@@ -3878,9 +4182,9 @@ function renderCalendar() {
       </div>
 
       <div class="cal-nav">
-        <button class="cal-nav-btn" onclick="Calendar.prev();render()">‹</button>
-        <button class="cal-today-btn" onclick="Calendar.today();render()">Oggi</button>
-        <button class="cal-nav-btn" onclick="Calendar.next();render()">›</button>
+        <button class="cal-nav-btn" onclick="Calendar.prev();renderCalendarOnly()">‹</button>
+        <button class="cal-today-btn" onclick="Calendar.today();renderCalendarOnly()">Oggi</button>
+        <button class="cal-nav-btn" onclick="Calendar.next();renderCalendarOnly()">›</button>
       </div>
 
       <div class="cal-grid">
@@ -3920,18 +4224,18 @@ function renderCalendar() {
               </div>
             </div>
             <div class="cal-event-actions">
-              <button onclick="Calendar.openForm('${ev.id}');render()" title="Modifica">✏️</button>
+              <button onclick="Calendar.openForm('${ev.id}');renderCalendarOnly()" title="Modifica">✏️</button>
               <button onclick="Calendar.deleteEvent('${ev.id}')" title="Elimina">🗑</button>
             </div>
           </div>`).join("")}
         </div>
 
-        <button class="cal-add-btn" onclick="Calendar.openForm();render()">
+        <button class="cal-add-btn" onclick="Calendar.openForm();renderCalendarOnly()">
           + Aggiungi evento
         </button>
       </div>` : ''}
 
-      ${c.showForm ? `<div class="cal-form-overlay" onclick="if(event.target===this){Calendar.closeForm();render()}">
+      ${c.showForm ? `<div class="cal-form-overlay" onclick="if(event.target===this){Calendar.closeForm();renderCalendarOnly()}">
         <div class="cal-form">
           <div class="cal-form-title">${c.editingId ? "Modifica evento" : "Nuovo evento"}</div>
           <label class="cal-form-label">Titolo</label>
@@ -3948,7 +4252,7 @@ function renderCalendar() {
             oninput="Calendar.formNote=this.value"
             placeholder="Dettagli, posto, altro...">${esc(c.formNote)}</textarea>
           <div class="cal-form-actions">
-            <button class="cal-form-cancel" onclick="Calendar.closeForm();render()">Annulla</button>
+            <button class="cal-form-cancel" onclick="Calendar.closeForm();renderCalendarOnly()">Annulla</button>
             <button class="cal-form-save" onclick="Calendar.saveEvent()">${c.editingId ? "Aggiorna" : "Salva"}</button>
           </div>
         </div>
@@ -3972,7 +4276,7 @@ function renderLists() {
     return `<div class="cal-overlay" onclick="if(event.target===this){Lists.close();render()}">
       <div class="cal-panel">
         <div class="cal-header">
-          <button class="lists-back" onclick="Lists.back();render()">‹ Liste</button>
+          <button class="lists-back" onclick="Lists.back();renderListsOnly()">‹ Liste</button>
           <button class="cal-close" onclick="Lists.close();render()">✕</button>
         </div>
         <div class="lists-title-row">
@@ -4038,7 +4342,7 @@ function renderLists() {
         ${L.lists.map(list => {
           const items = L.items[list.id] || [];
           const activeCount = list.checkable ? items.filter(i=>!i.done).length : items.length;
-          return `<button class="list-card" onclick="Lists.openList('${list.id}');render()">
+          return `<button class="list-card" onclick="Lists.openList('${list.id}');renderListsOnly()">
             <div class="list-card-emoji">${list.emoji}</div>
             <div class="list-card-body">
               <div class="list-card-name">${esc(list.name)}</div>
@@ -4233,48 +4537,49 @@ mLink.href = URL.createObjectURL(mBlob);
 document.head.appendChild(mLink);
 
 /* ─── Init ─── */
-auth.signInAnonymously()
-  .then(cred => {
-    state.uid = cred.user.uid;
-    state.ready = true;
+// LOCAL persistence ensures the anonymous uid (and Google login) survives
+// page refresh — without this, every reload creates a new anonymous user
+// and loses all local-only data.
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
 
-    // Enable offline persistence
-    db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+auth.onAuthStateChanged(user => {
+  if (user) {
+    Account.update(user);
+    state.uid = user.uid;
+    if (!state.ready) {
+      state.ready = true;
+      db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+      listenToTasks();
+      Lists.subscribe();
+      render();
 
-    listenToTasks();
-    Lists.subscribe();  // pre-load lists so voice intents can find them
-    render();
+      if (!localStorage.getItem("teto-seen-onboarding")) {
+        setTimeout(() => {
+          showBubble("Parlami! Puoi dirmi cose come: 'comprare pane', 'domani alle 15 dentista', 'crea lista film'~ ♪");
+          localStorage.setItem("teto-seen-onboarding", "1");
+        }, 1500);
+      }
 
-    // First-time onboarding: teach the user what voice can do
-    if (!localStorage.getItem("teto-seen-onboarding")) {
-      setTimeout(() => {
-        showBubble("Parlami! Puoi dirmi cose come: 'comprare pane', 'domani alle 15 dentista', 'crea lista film'~ ♪");
-        localStorage.setItem("teto-seen-onboarding", "1");
-      }, 1500);
+      if (state.proactiveEnabled) scheduleProactive();
+      if (WAKE.enabled) WAKE.start();
+
+      setTimeout(() => { checkDueReminders(); render(); }, 2500);
     }
-
-    // Kick off proactive questions if enabled
-    if (state.proactiveEnabled) scheduleProactive();
-
-    // Start wake-word listener if the user previously enabled it.
-    // Mic permission is cached across sessions so this succeeds silently
-    // after the first time the user has granted access.
-    if (WAKE.enabled) WAKE.start();
-
-    // Initial reminder check shortly after load (once tasks arrive)
-    setTimeout(() => { checkDueReminders(); render(); }, 2500);
-  })
-  .catch(err => {
-    console.error("Auth error:", err);
-    document.getElementById("app").innerHTML = `
-      <div style="padding:40px 20px;text-align:center">
-        <p style="font-size:1.1rem;font-weight:700;color:#ff4271;margin-bottom:8px">⚠️ Configura Firebase</p>
-        <p style="font-size:.85rem;color:#a295a7;line-height:1.5">
-          Apri il file <code>index.html</code> e inserisci la tua configurazione Firebase
-          nel blocco <code>FIREBASE_CONFIG</code> in cima allo script.
-        </p>
-      </div>`;
-  });
+  } else {
+    // No user — sign in anonymously
+    auth.signInAnonymously().catch(err => {
+      console.error("Auth error:", err);
+      document.getElementById("app").innerHTML = `
+        <div style="padding:40px 20px;text-align:center">
+          <p style="font-size:1.1rem;font-weight:700;color:#ff4271;margin-bottom:8px">⚠️ Configura Firebase</p>
+          <p style="font-size:.85rem;color:#a295a7;line-height:1.5">
+            Apri il file <code>index.html</code> e inserisci la tua configurazione Firebase
+            nel blocco <code>FIREBASE_CONFIG</code> in cima allo script.
+          </p>
+        </div>`;
+    });
+  }
+});
 </script>
 </body>
 </html>
