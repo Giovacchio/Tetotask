@@ -723,7 +723,7 @@ input:focus, textarea:focus { outline:none; border-color:var(--red) !important; 
   display: flex; align-items: center; justify-content: center;
   padding: 12px;
   animation: fadeUp .25s ease;
-  overflow-y: auto;
+  /* F3: scroll lives on the panel only — single scroll container */
 }
 .cal-panel {
   background: var(--card); border: 2px solid var(--red);
@@ -731,6 +731,8 @@ input:focus, textarea:focus { outline:none; border-color:var(--red) !important; 
   box-shadow: 0 10px 40px rgba(163,21,64,.35);
   width: 100%; max-width: 460px;
   max-height: 92vh; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding: 18px 16px;
   animation: panelIn .3s ease;
   position: relative;
@@ -830,7 +832,8 @@ input:focus, textarea:focus { outline:none; border-color:var(--red) !important; 
 }
 .cal-cell.selected .cal-cell-num { color: #fff; }
 .cal-dots {
-  display: flex; gap: 2px; margin-top: auto; padding-bottom: 4px;
+  display: flex; gap: 3px; margin-top: auto; padding-bottom: 4px;
+  align-items: center;
 }
 .cal-dot {
   width: 5px; height: 5px; border-radius: 50%;
@@ -838,8 +841,18 @@ input:focus, textarea:focus { outline:none; border-color:var(--red) !important; 
 }
 .cal-dot.event   { background: var(--red); }
 .cal-dot.task    { background: var(--accent-gold); }
-.cal-dot.holiday { background: var(--deep-wine); }
+.cal-dot.holiday {
+  /* F4: distinctive shape — small star outline instead of plain dot */
+  width: 8px; height: 8px;
+  background: transparent;
+  color: var(--deep-wine);
+  font-size: 10px; line-height: 8px;
+  border-radius: 0;
+  text-align: center;
+}
+.cal-dot.holiday::before { content: "★"; }
 .cal-cell.selected .cal-dot { background: #fff !important; }
+.cal-cell.selected .cal-dot.holiday { background: transparent !important; color: #fff !important; }
 
 .cal-legend {
   display: flex; justify-content: center; gap: 12px;
@@ -921,11 +934,14 @@ input:focus, textarea:focus { outline:none; border-color:var(--red) !important; 
   backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
   display: flex; align-items: center; justify-content: center;
   padding: 16px;
+  overflow-y: auto;
 }
 .cal-form {
   background: var(--card); border: 2px solid var(--red);
   border-radius: 20px; padding: 18px;
   width: 100%; max-width: 400px;
+  max-height: 92vh; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   box-shadow: 0 10px 40px rgba(163,21,64,.4);
   animation: panelIn .25s ease;
 }
@@ -983,6 +999,126 @@ textarea.cal-form-input { resize: vertical; min-height: 60px; }
   color: #fff; box-shadow: 0 3px 10px rgba(255,47,94,.3);
 }
 
+/* ─── View tabs (U1) ─── */
+.cal-view-tabs {
+  display: flex; gap: 6px; margin-bottom: 12px;
+  background: rgba(255,47,94,.06);
+  padding: 4px; border-radius: 12px;
+}
+.cal-view-tab {
+  flex: 1; padding: 8px 12px;
+  background: transparent;
+  border-radius: 9px;
+  font-family: 'Nunito', sans-serif;
+  font-size: .85rem; font-weight: 700;
+  color: var(--muted); border: none;
+  transition: all .15s;
+  cursor: pointer;
+}
+.cal-view-tab.on {
+  background: linear-gradient(135deg, var(--red), var(--blush));
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(255,47,94,.3);
+}
+
+/* ─── Category color bars on month cells (U4) ─── */
+.cal-cat-bars {
+  display: flex; gap: 2px; margin-top: 2px;
+  width: 100%; padding: 0 4px;
+  justify-content: center;
+}
+.cal-cat-bar {
+  flex: 1; max-width: 14px; height: 3px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+/* ─── Agenda view (U1) ─── */
+.cal-agenda-day {
+  display: flex; gap: 12px;
+  margin-bottom: 14px;
+  align-items: stretch;
+}
+.cal-agenda-date {
+  flex-shrink: 0;
+  width: 56px;
+  background: var(--cream);
+  border: 1.5px solid var(--card-border);
+  border-radius: 14px;
+  padding: 8px 6px;
+  text-align: center;
+  display: flex; flex-direction: column; justify-content: center;
+}
+.cal-agenda-date.today {
+  background: linear-gradient(135deg, var(--red), var(--blush));
+  border-color: var(--red);
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(255,47,94,.3);
+}
+.cal-agenda-date.today .cal-agenda-dow,
+.cal-agenda-date.today .cal-agenda-mon { color: rgba(255,255,255,.85); }
+.cal-agenda-date.today .cal-agenda-num { color: #fff; }
+.cal-agenda-dow {
+  font-size: .7rem; font-weight: 800; color: var(--blush);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.cal-agenda-num {
+  font-family: 'Fredoka', sans-serif;
+  font-size: 1.5rem; font-weight: 700; color: var(--deep);
+  line-height: 1; margin: 2px 0;
+}
+.cal-agenda-mon {
+  font-size: .65rem; font-weight: 700; color: var(--muted);
+  text-transform: uppercase;
+}
+.cal-agenda-events { flex: 1; min-width: 0; }
+
+/* ─── Category picker buttons in form (U4) ─── */
+.cal-cat-row {
+  display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px;
+}
+.cal-cat-btn {
+  flex: 1 1 calc(33% - 4px);
+  min-width: 0;
+  padding: 8px 8px; border-radius: 10px;
+  background: var(--cream);
+  border: 2px solid var(--card-border);
+  font-family: 'Nunito', sans-serif;
+  font-size: .78rem; font-weight: 700;
+  color: var(--dark);
+  cursor: pointer; transition: all .15s;
+  text-align: center;
+}
+.cal-cat-btn.on {
+  background: var(--cat-color, var(--red));
+  border-color: var(--cat-color, var(--red));
+  color: #fff;
+}
+
+/* ─── Allday + recurrence + reminder badges (U2/U3/N3) ─── */
+.cal-checkbox {
+  margin-right: 6px; vertical-align: middle;
+  width: 16px; height: 16px; accent-color: var(--red);
+}
+.cal-event-time.allday {
+  background: linear-gradient(135deg, var(--accent-gold), #ffa500) !important;
+  color: var(--dark) !important;
+  font-size: .68rem !important;
+}
+.cal-event-recur, .cal-event-reminder {
+  display: inline-block;
+  font-size: .68rem; font-weight: 800;
+  padding: 1px 6px; border-radius: 6px;
+  background: rgba(255,47,94,.12); color: var(--red);
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.cal-event-reminder { background: rgba(255,184,77,.2); color: #a35500; }
+.cal-event-date {
+  font-size: .72rem; color: var(--muted); font-weight: 700;
+  margin-top: 3px; text-transform: capitalize;
+}
+
 /* Dark mode adjustments for calendar */
 [data-theme="dark"] .cal-overlay { background: rgba(0,0,0,.7); }
 [data-theme="dark"] .cal-form-overlay { background: rgba(0,0,0,.75); }
@@ -995,6 +1131,13 @@ textarea.cal-form-input { resize: vertical; min-height: 60px; }
 [data-theme="dark"] .mini-cal-day { color: var(--dark); }
 [data-theme="dark"] .cal-form-input { color: var(--dark); color-scheme: dark; }
 [data-theme="dark"] .cal-form-time select { color: var(--dark); }
+[data-theme="dark"] .cal-view-tabs { background: rgba(255,107,142,.1); }
+[data-theme="dark"] .cal-view-tab { color: var(--dark); }
+[data-theme="dark"] .cal-agenda-date { background: rgba(255,107,142,.1); }
+[data-theme="dark"] .cal-agenda-num { color: var(--dark); }
+[data-theme="dark"] .cal-cat-btn { background: rgba(255,107,142,.08); color: var(--dark); }
+[data-theme="dark"] .cal-event-recur { background: rgba(255,107,142,.15); color: var(--dark); }
+[data-theme="dark"] .cal-event-reminder { background: rgba(255,184,77,.2); color: var(--accent-gold); }
 
 .footer { text-align:center; font-size:.78rem; color:var(--blush); margin-top:32px; font-weight:700; letter-spacing:.04em;
   font-family:'Fredoka', 'Nunito', sans-serif;
@@ -1935,10 +2078,10 @@ const Briefing = {
 
     // Next event from calendar
     if (typeof Calendar !== "undefined" && Calendar.events) {
-      const todayKey = new Date().toISOString().slice(0,10);
-      const todayEvts = (Calendar.events[todayKey] || []);
+      const todayKey = dateKey(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+      const todayEvts = Calendar.eventsOnDay(todayKey);
       if (todayEvts.length > 0) {
-        const next = todayEvts.slice().sort((a,b) => (a.time||"99:99").localeCompare(b.time||"99:99"))[0];
+        const next = todayEvts[0];
         lines.push(`Prossimo evento: ${next.title} alle ${next.time || "?"}.`);
       }
     }
@@ -1999,8 +2142,8 @@ const Planner = {
     const all = [...todayTasks, ...inbox];
 
     // Calendar events as occupied blocks
-    const todayKey = new Date().toISOString().slice(0,10);
-    const events = (typeof Calendar !== "undefined" ? (Calendar.events?.[todayKey] || []) : [])
+    const todayKey = dateKey(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+    const events = (typeof Calendar !== "undefined" ? Calendar.eventsOnDay(todayKey) : [])
       .map(e => {
         const [h, m] = (e.time || "00:00").split(":").map(Number);
         return { hour: h, min: m, title: e.title };
@@ -3370,6 +3513,32 @@ function detectIntent(rawText) {
     }
   }
 
+  // ─── CALENDAR: DELETE EVENT (V2) ──────────────────────
+  // "cancella/elimina evento X" / "rimuovi X dal calendario"
+  if ((m = lower.match(/^(?:cancella|elimina|togli|rimuovi)\s+(?:l['’]?\s*)?evento\s+(.+)/i)) ||
+      (m = lower.match(/^(?:cancella|elimina|togli|rimuovi)\s+(.+?)\s+dal\s+calendario\b/i))) {
+    return { kind: "event_delete", query: m[1].trim() };
+  }
+
+  // ─── CALENDAR: MOVE EVENT (V1) ────────────────────────
+  // "sposta X a/al Y" — Y can be a date expression
+  if ((m = lower.match(/^(?:sposta|posticipa|rinvia|metti|cambia)\s+(?:l['’]?\s*evento\s+)?(.+?)\s+(?:a|al|alle|all['’]?|per\s+(?:il|la)?)\s+(.+)/i))) {
+    const dt = parseDateTime(m[2]);
+    if (dt && dt.timestamp) {
+      const d = new Date(dt.timestamp);
+      const dKey = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
+      const t = (d.getHours() !== 0 || d.getMinutes() !== 0)
+        ? `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}` : null;
+      return { kind: "event_move", query: m[1].trim(), dateKey: dKey, time: t };
+    }
+  }
+
+  // ─── CALENDAR: QUERY EVENT (V3) ───────────────────────
+  // "quando ho X?" / "che giorno è X?" / "a che ora è X"
+  if ((m = lower.match(/^(?:quando\s+(?:ho|c['’]?\s*è|è)|che\s+giorno\s+(?:è|cade)|a\s+che\s+ora\s+(?:è|c['’]?\s*è|ho))\s+(?:l['’]?\s*evento\s+)?(.+?)[?!.]*$/i))) {
+    return { kind: "event_query", query: m[1].trim() };
+  }
+
   // ─── LIST: CREATE ───────────────────────────────────────
   // "crea(mi) (una) lista X" / "nuova lista X" / "fai(mi) una lista X" / "voglio una lista X"
   if ((m = lower.match(/^(?:crea(?:re|mi|temi|rmi)?|fai(?:re|mi|temi)?|fammi|fare|creo|voglio|vorrei|aggiungi|aggiungimi|aggiungere|aggiungermi)\s+(?:una\s+|un'\s*)?(?:nuova\s+)?lista\s+(?:(?:chiamata|di\s+nome|per\s+il|per\s+la|per|della|del|dei|delle)\s+)?(.+)/i))) {
@@ -3741,10 +3910,35 @@ async function executeIntent(intent) {
         date: dateStr,
         time: timeStr,
         note: null,
+        category: "personal",
+        allDay: false,
+        recurrence: "none",
+        reminderOffset: null,
         ts: Date.now(),
       });
       const when = d.toLocaleString("it-IT", { weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" });
       return `Evento salvato! ${intent.title} — ${when}`;
+    }
+    case "event_delete": {
+      const found = await Calendar.deleteByTitle(intent.query);
+      if (!found) return `Non trovo nessun evento con "${intent.query}"`;
+      return `Eliminato: ${found.event.title}`;
+    }
+    case "event_move": {
+      const found = await Calendar.moveByTitle(intent.query, intent.dateKey, intent.time);
+      if (!found) return `Non trovo nessun evento con "${intent.query}"`;
+      const [yy, mm, dd] = intent.dateKey.split("-").map(Number);
+      const newDate = new Date(yy, mm-1, dd);
+      const dayLabel = newDate.toLocaleDateString("it-IT", { weekday:"long", day:"numeric", month:"long" });
+      const timePart = intent.time ? ` alle ${intent.time}` : "";
+      return `Spostato "${found.event.title}" a ${dayLabel}${timePart} ♪`;
+    }
+    case "event_query": {
+      const found = Calendar.findByTitle(intent.query);
+      if (!found) return `Non trovo nessun evento con "${intent.query}" nei prossimi 60 giorni`;
+      const dayLabel = found.date.toLocaleDateString("it-IT", { weekday:"long", day:"numeric", month:"long" });
+      const timePart = found.event.allDay ? "tutto il giorno" : (found.event.time ? `alle ${found.event.time}` : "");
+      return `${found.event.title}: ${dayLabel} ${timePart}`.trim();
     }
     case "list_create": {
       const id = genId();
@@ -4280,6 +4474,16 @@ function conversationalReply(text) {
 const MESI_IT = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
 const GIORNI_BREVI = ['Lu','Ma','Me','Gi','Ve','Sa','Do'];
 
+/* Event categories with colors (U4) */
+const EVENT_CATS = [
+  { id: "personal", label: "Personale", color: "#ff2f5e", icon: "💗" },
+  { id: "work",     label: "Lavoro",    color: "#3b82f6", icon: "💼" },
+  { id: "health",   label: "Salute",    color: "#10b981", icon: "🌿" },
+  { id: "social",   label: "Sociale",   color: "#f59e0b", icon: "🥂" },
+  { id: "other",    label: "Altro",     color: "#8b5cf6", icon: "✨" },
+];
+const EVENT_CAT_BY_ID = Object.fromEntries(EVENT_CATS.map(c => [c.id, c]));
+
 /**
  * Calculate Italian national holidays (including Easter via Gauss algorithm)
  */
@@ -4316,15 +4520,22 @@ const Calendar = {
   year:  new Date().getFullYear(),
   month: new Date().getMonth(),
   selectedDate: null,       // "YYYY-MM-DD" string
-  events: {},               // { "YYYY-MM-DD": [{id, title, time, note}, ...] }
+  events: {},               // { "YYYY-MM-DD": [{id, title, time, note, category, allDay, recurrence, reminderOffset}] }
   unsub: null,
+  view: "month",            // U1: "month" | "agenda"
+  search: "",               // N2: agenda search query (kept simple even without UI for now)
   // Form state
   showForm: false,
   formTitle: "",
   formHour: "09",
   formMin: "00",
   formNote: "",
+  formCategory: "personal",          // U4
+  formAllDay: false,                  // N3
+  formRecurrence: "none",             // U2: none | daily | weekly | monthly | yearly
+  formReminderOffset: -1,             // U3: -1 = nessuno; in minuti prima
   editingId: null,
+  notifiedEvents: new Set(),          // U3: in-session dedup of fired notifications
 
   open() {
     this.open_ = true;
@@ -4333,10 +4544,11 @@ const Calendar = {
     // Today selected by default
     const today = new Date();
     this.selectedDate = dateKey(today.getFullYear(), today.getMonth(), today.getDate());
-    // Subscribe to events if not already
-    if (state.uid && !this.unsub) this._sub();
+    // Subscribe lazy-fallback (boot already does it; this is for the very first session)
+    if (state.uid && !this.unsub) this.subscribe();
   },
-  _sub() {
+  subscribe() {
+    if (!state.uid || this.unsub) return;
     this.unsub = db.collection("users").doc(state.uid).collection("events")
       .onSnapshot(snap => {
         const grouped = {};
@@ -4357,7 +4569,7 @@ const Calendar = {
   },
   resubscribe() {
     if (this.unsub) { try { this.unsub(); } catch(e) {} this.unsub = null; }
-    if (state.uid) this._sub();
+    if (state.uid) this.subscribe();
   },
   close() {
     this.open_ = false;
@@ -4382,20 +4594,34 @@ const Calendar = {
     this.showForm = true;
     this.editingId = evId;
     if (evId) {
-      const arr = this.events[this.selectedDate] || [];
-      const ev = arr.find(e => e.id === evId);
+      // evId can come from any day if user navigates; find it across all events
+      let ev = null;
+      for (const arr of Object.values(this.events)) {
+        const found = arr.find(e => e.id === evId);
+        if (found) { ev = found; break; }
+      }
       if (ev) {
         this.formTitle = ev.title;
         this.formNote = ev.note || "";
-        if (ev.time) {
+        this.formCategory = ev.category || "personal";
+        this.formAllDay = !!ev.allDay;
+        this.formRecurrence = ev.recurrence || "none";
+        this.formReminderOffset = (ev.reminderOffset != null) ? ev.reminderOffset : -1;
+        if (ev.time && !ev.allDay) {
           [this.formHour, this.formMin] = ev.time.split(":");
         } else {
           this.formHour = "09"; this.formMin = "00";
         }
+        // Make sure selectedDate matches the event we are editing
+        if (ev.date) this.selectedDate = ev.date;
       }
     } else {
       this.formTitle = "";
       this.formNote = "";
+      this.formCategory = "personal";
+      this.formAllDay = false;
+      this.formRecurrence = "none";
+      this.formReminderOffset = -1;
       this.formHour = "09";
       this.formMin = "00";
     }
@@ -4410,8 +4636,12 @@ const Calendar = {
     const data = {
       title,
       date: this.selectedDate,
-      time: `${this.formHour}:${this.formMin}`,
+      time: this.formAllDay ? null : `${this.formHour}:${this.formMin}`,
       note: this.formNote.trim() || null,
+      category: this.formCategory || "personal",
+      allDay: !!this.formAllDay,
+      recurrence: this.formRecurrence || "none",
+      reminderOffset: (this.formReminderOffset == null || this.formReminderOffset === -1) ? null : this.formReminderOffset,
       ts: Date.now(),
     };
     try {
@@ -4435,6 +4665,112 @@ const Calendar = {
       haptic(8);
       render();
     } catch(e) { console.error(e); showBubble(TETO.error); }
+  },
+
+  /* ─── U2: Recurrence expansion ───
+     Given a "YYYY-MM-DD" string, return all events that fall on that day
+     considering recurrence. Result: array of synthetic event objects (with
+     `_originalDate` to know the source). */
+  eventsOnDay(dayKey) {
+    const result = [];
+    const [yy, mm, dd] = dayKey.split("-").map(Number);
+    const dayDate = new Date(yy, mm-1, dd);
+    const dayDow = dayDate.getDay();
+
+    for (const [origDate, arr] of Object.entries(this.events)) {
+      for (const ev of arr) {
+        if (origDate === dayKey) {
+          // Direct match — original or non-recurring instance
+          result.push(ev);
+          continue;
+        }
+        if (!ev.recurrence || ev.recurrence === "none") continue;
+        const [oy, om, od] = origDate.split("-").map(Number);
+        const origD = new Date(oy, om-1, od);
+        if (dayDate < origD) continue;       // recurrence only future
+        let matches = false;
+        if (ev.recurrence === "daily")        matches = true;
+        else if (ev.recurrence === "weekly")  matches = (origD.getDay() === dayDow);
+        else if (ev.recurrence === "monthly") matches = (origD.getDate() === dd);
+        else if (ev.recurrence === "yearly")  matches = (origD.getMonth() === mm-1 && origD.getDate() === dd);
+        if (matches) {
+          result.push({ ...ev, _originalDate: origDate, _isRecurrence: true });
+        }
+      }
+    }
+    return result.sort((a,b) => (a.time||"99:99").localeCompare(b.time||"99:99"));
+  },
+
+  /* ─── U1: Agenda view — flat list of next N days with events ─── */
+  agendaNextDays(n = 30) {
+    const today = startOfDay(Date.now());
+    const result = [];
+    for (let i = 0; i < n; i++) {
+      const d = new Date(today + i * 86400000);
+      const k = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
+      const evs = this.eventsOnDay(k);
+      if (evs.length > 0) result.push({ key: k, date: d, events: evs });
+    }
+    return result;
+  },
+
+  /* ─── U3: Reminder check — fire notification when reminderOffset matches ─── */
+  checkReminders() {
+    const now = Date.now();
+    const todayKey = dateKey(new Date(now).getFullYear(), new Date(now).getMonth(), new Date(now).getDate());
+    const dayEvents = this.eventsOnDay(todayKey);
+    for (const ev of dayEvents) {
+      if (ev.reminderOffset == null || ev.allDay || !ev.time) continue;
+      const [h, m] = ev.time.split(":").map(Number);
+      const evMs = new Date().setHours(h, m, 0, 0);
+      const fireMs = evMs - ev.reminderOffset * 60000;
+      const dedupKey = `${ev.id}_${todayKey}_${ev.reminderOffset}`;
+      if (now >= fireMs && now < fireMs + 90000 && !this.notifiedEvents.has(dedupKey)) {
+        this.notifiedEvents.add(dedupKey);
+        const offText = ev.reminderOffset === 0 ? "ora" :
+                        ev.reminderOffset >= 60 ? `tra ${Math.round(ev.reminderOffset/60)}h` :
+                        `tra ${ev.reminderOffset} min`;
+        const msg = `📅 ${ev.title} ${offText} (${ev.time})`;
+        showBubble(msg);
+        if (TTS.enabled) TTS.speak(msg);
+        haptic([20, 60, 20]);
+        if (window.Notification && Notification.permission === "granted") {
+          try { new Notification("TetoTask 🍞", { body: msg, tag: dedupKey }); } catch(e) {}
+        }
+      }
+    }
+  },
+
+  /* ─── V1/V2/V3: Voice operations ─── */
+  // Find event by partial title match (returns first match in next 60 days)
+  findByTitle(query) {
+    const q = query.toLowerCase().trim();
+    if (!q) return null;
+    const today = startOfDay(Date.now());
+    for (let i = 0; i < 60; i++) {
+      const d = new Date(today + i * 86400000);
+      const k = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
+      const evs = this.eventsOnDay(k);
+      const match = evs.find(e => e.title.toLowerCase().includes(q));
+      if (match) return { event: match, dayKey: k, date: d };
+    }
+    return null;
+  },
+  async deleteByTitle(query) {
+    const found = this.findByTitle(query);
+    if (!found) return null;
+    // If recurrence instance, delete the whole recurring template (simpler UX)
+    const realId = found.event._isRecurrence ? found.event.id : found.event.id;
+    await db.collection("users").doc(state.uid).collection("events").doc(realId).delete();
+    return found;
+  },
+  async moveByTitle(query, newDateKey, newTime) {
+    const found = this.findByTitle(query);
+    if (!found) return null;
+    const update = { date: newDateKey };
+    if (newTime) update.time = newTime;
+    await db.collection("users").doc(state.uid).collection("events").doc(found.event.id).update(update);
+    return found;
   },
 };
 
@@ -4632,8 +4968,9 @@ function findNextFreeDay() {
   for (let i = 1; i <= 14; i++) {
     const dayStart = today + i * 86400000;
     const dayEnd   = dayStart + 86400000;
-    const dayKey = new Date(dayStart).toISOString().slice(0,10);
-    const events = (typeof Calendar !== "undefined" ? (Calendar.events?.[dayKey] || []) : []);
+    const d = new Date(dayStart);
+    const dayK = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
+    const events = (typeof Calendar !== "undefined" ? Calendar.eventsOnDay(dayK) : []);
     if (events.length > 0) continue;
     const tasksThatDay = state.tasks.filter(t => !t.done && t.reminderAt && t.reminderAt >= dayStart && t.reminderAt < dayEnd);
     if (tasksThatDay.length <= 2) return dayStart;
@@ -4715,6 +5052,8 @@ function checkDueReminders() {
 setInterval(() => {
   if (!state.ready) return;
   const fired = checkDueReminders();
+  // U3: also fire calendar event reminders
+  Calendar.checkReminders();
   if (fired && !Calendar.open_ && !Lists.open_ && !state.showSettings && !state.showHelp) {
     render();
   }
@@ -5583,6 +5922,29 @@ function render() {
   } else {
     state._helpAnimated = false;
   }
+  // N1: swipe gesture on the calendar grid for month navigation
+  setupCalendarSwipe();
+}
+
+function setupCalendarSwipe() {
+  const grid = document.getElementById("cal-grid-swipe");
+  if (!grid || grid._swipeBound) return;
+  grid._swipeBound = true;
+  let startX = null, startY = null;
+  grid.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+  grid.addEventListener("touchend", (e) => {
+    if (startX == null) return;
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    startX = startY = null;
+    if (Math.abs(dx) < 50 || Math.abs(dy) > Math.abs(dx)) return;  // mostly horizontal, min 50px
+    if (dx < 0) Calendar.next(); else Calendar.prev();
+    renderCalendarOnly();
+  }, { passive: true });
 }
 
 /**
@@ -5593,13 +5955,21 @@ function render() {
  */
 function renderCalendarOnly() {
   if (!Calendar.open_) { render(); return; }
+  // F2: if the form is open, only update parts that don't include it,
+  // so input focus and caret position are preserved.
+  if (Calendar.showForm) {
+    const existingForm = document.querySelector(".cal-form-overlay");
+    if (existingForm) return;   // form is mounted, leave it untouched
+  }
   const existing = document.querySelector(".cal-overlay");
   if (!existing) { render(); return; }
-  // renderCalendar() returns the full overlay markup including .cal-overlay
   const wrapper = document.createElement("div");
   wrapper.innerHTML = renderCalendar();
   const fresh = wrapper.firstElementChild;
-  if (fresh) existing.replaceWith(fresh);
+  if (fresh) {
+    existing.replaceWith(fresh);
+    setupCalendarSwipe();
+  }
   else render();
 }
 function renderListsOnly() {
@@ -5616,41 +5986,52 @@ function renderListsOnly() {
 function renderCalendar() {
   const c = Calendar;
   const holidays = getItalianHolidays(c.year);
-  // Build grid
+  const cells = [];
+
+  // Build month grid (only used in month view)
   const firstDay = new Date(c.year, c.month, 1).getDay(); // 0=Sun
   const offset = (firstDay + 6) % 7; // Italian week: Mon=0
   const daysInMonth = new Date(c.year, c.month+1, 0).getDate();
   const today = new Date();
   const todayKey = dateKey(today.getFullYear(), today.getMonth(), today.getDate());
 
-  const cells = [];
-  for (let i = 0; i < offset; i++) cells.push(`<div class="cal-cell cal-empty"></div>`);
-  for (let d = 1; d <= daysInMonth; d++) {
-    const k = dateKey(c.year, c.month, d);
-    const dow = new Date(c.year, c.month, d).getDay();
-    const isWeekend = (dow === 0 || dow === 6);
-    const isToday = (k === todayKey);
-    const isSelected = (k === c.selectedDate);
-    const isHoliday = !!holidays[k];
-    const hasEvents = !!(c.events[k] && c.events[k].length);
-    const hasTaskRem = state.tasks.some(t => t.reminderAt && !t.done &&
-      dateKey(new Date(t.reminderAt).getFullYear(), new Date(t.reminderAt).getMonth(), new Date(t.reminderAt).getDate()) === k);
-    const classes = ["cal-cell"];
-    if (isWeekend) classes.push("weekend");
-    if (isToday) classes.push("today");
-    if (isSelected) classes.push("selected");
-    if (isHoliday) classes.push("holiday");
-    cells.push(`<div class="${classes.join(' ')}" onclick="Calendar.selectDay('${k}');renderCalendarOnly()">
-      <div class="cal-cell-num">${d}</div>
-      <div class="cal-dots">
-        ${hasEvents ? '<span class="cal-dot event"></span>' : ''}
-        ${hasTaskRem ? '<span class="cal-dot task"></span>' : ''}
-        ${isHoliday ? '<span class="cal-dot holiday"></span>' : ''}
-      </div>
-    </div>`);
+  if (c.view === "month") {
+    for (let i = 0; i < offset; i++) cells.push(`<div class="cal-cell cal-empty"></div>`);
+    for (let d = 1; d <= daysInMonth; d++) {
+      const k = dateKey(c.year, c.month, d);
+      const dow = new Date(c.year, c.month, d).getDay();
+      const isWeekend = (dow === 0 || dow === 6);
+      const isToday = (k === todayKey);
+      const isSelected = (k === c.selectedDate);
+      const isHoliday = !!holidays[k];
+      const dayEvts = c.eventsOnDay(k);
+      const hasEvents = dayEvts.length > 0;
+      const hasTaskRem = state.tasks.some(t => t.reminderAt && !t.done &&
+        dateKey(new Date(t.reminderAt).getFullYear(), new Date(t.reminderAt).getMonth(), new Date(t.reminderAt).getDate()) === k);
+      // U4: pick up to 2 distinct category colors as small bars on the cell
+      const cats = [...new Set(dayEvts.map(e => e.category || "personal"))].slice(0, 2);
+      const classes = ["cal-cell"];
+      if (isWeekend) classes.push("weekend");
+      if (isToday) classes.push("today");
+      if (isSelected) classes.push("selected");
+      if (isHoliday) classes.push("holiday");
+      const catBars = cats.map(cid => {
+        const cat = EVENT_CAT_BY_ID[cid] || EVENT_CAT_BY_ID.personal;
+        return `<span class="cal-cat-bar" style="background:${cat.color}"></span>`;
+      }).join("");
+      cells.push(`<div class="${classes.join(' ')}" onclick="Calendar.selectDay('${k}');renderCalendarOnly()">
+        <div class="cal-cell-num">${d}</div>
+        ${catBars ? `<div class="cal-cat-bars">${catBars}</div>` : ""}
+        <div class="cal-dots">
+          ${hasEvents ? '<span class="cal-dot event"></span>' : ''}
+          ${hasTaskRem ? '<span class="cal-dot task"></span>' : ''}
+          ${isHoliday ? '<span class="cal-dot holiday"></span>' : ''}
+        </div>
+      </div>`);
+    }
   }
 
-  const selEvents = (c.events[c.selectedDate] || []);
+  const selEvents = c.selectedDate ? c.eventsOnDay(c.selectedDate) : [];
   const selHoliday = holidays[c.selectedDate];
   const selTasks = state.tasks.filter(t => t.reminderAt && !t.done &&
     dateKey(new Date(t.reminderAt).getFullYear(), new Date(t.reminderAt).getMonth(), new Date(t.reminderAt).getDate()) === c.selectedDate);
@@ -5664,94 +6045,208 @@ function renderCalendar() {
   const minOpts  = ["00","05","10","15","20","25","30","35","40","45","50","55"]
     .map(m=>`<option value="${m}" ${m===c.formMin?'selected':''}>${m}</option>`).join("");
 
+  const renderEventItem = (ev, showDate = false) => {
+    const cat = EVENT_CAT_BY_ID[ev.category] || EVENT_CAT_BY_ID.personal;
+    const recurLabel = ev.recurrence && ev.recurrence !== "none" ? `<span class="cal-event-recur">↻ ${({daily:"ogni giorno",weekly:"sett.",monthly:"mens.",yearly:"ann."})[ev.recurrence]}</span>` : "";
+    const reminderLabel = (ev.reminderOffset != null) ? `<span class="cal-event-reminder">🔔</span>` : "";
+    const timeLabel = ev.allDay ? '<span class="cal-event-time allday">tutto il giorno</span>' :
+                      ev.time ? `<span class="cal-event-time" style="background:${cat.color}">${ev.time}</span>` : "";
+    return `<div class="cal-event-item" style="border-left-color:${cat.color}">
+      <div class="cal-event-main">
+        ${timeLabel}
+        <div class="cal-event-body">
+          <div class="cal-event-title">${cat.icon} ${esc(ev.title)} ${recurLabel}${reminderLabel}</div>
+          ${ev.note ? `<div class="cal-event-note">${esc(ev.note)}</div>` : ''}
+          ${showDate ? `<div class="cal-event-date">${new Date(ev._originalDate||ev.date).toLocaleDateString("it-IT",{weekday:"short",day:"numeric",month:"short"})}</div>` : ""}
+        </div>
+      </div>
+      <div class="cal-event-actions">
+        <button onclick="Calendar.openForm('${ev.id}');renderCalendarOnly()" title="Modifica">✏️</button>
+        <button onclick="if(confirm('Eliminare ${esc(ev.title).replace(/'/g,'’')}?')){Calendar.deleteEvent('${ev.id}')}" title="Elimina">🗑</button>
+      </div>
+    </div>`;
+  };
+
+  const monthBody = `
+    <div class="cal-nav">
+      <button class="cal-nav-btn" onclick="Calendar.prev();renderCalendarOnly()">‹</button>
+      <button class="cal-today-btn" onclick="Calendar.today();renderCalendarOnly()">Oggi</button>
+      <button class="cal-nav-btn" onclick="Calendar.next();renderCalendarOnly()">›</button>
+    </div>
+
+    <div class="cal-grid" id="cal-grid-swipe">
+      ${GIORNI_BREVI.map(g=>`<div class="cal-day-name">${g}</div>`).join("")}
+      ${cells.join("")}
+    </div>
+
+    <div class="cal-legend">
+      <span><span class="cal-dot event"></span> Evento</span>
+      <span><span class="cal-dot task"></span> Task</span>
+      <span><span class="cal-dot holiday"></span> Festa</span>
+    </div>
+
+    ${c.selectedDate ? `<div class="cal-day-detail">
+      <div class="cal-day-header">
+        <div class="cal-day-label">${selLabel}</div>
+        ${selHoliday ? `<div class="cal-holiday-badge">🎊 ${esc(selHoliday)}</div>` : ''}
+      </div>
+
+      ${selTasks.length > 0 ? `<div class="cal-subsection">
+        <div class="cal-subsection-title">📝 Task con reminder</div>
+        ${selTasks.map(t => `<div class="cal-task-item">
+          <span class="cal-task-time">${new Date(t.reminderAt).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}</span>
+          <span class="cal-task-text">${esc(t.text)}</span>
+        </div>`).join("")}
+      </div>` : ''}
+
+      <div class="cal-subsection">
+        <div class="cal-subsection-title">📆 Eventi</div>
+        ${selEvents.length === 0 ? `<div class="cal-empty-msg">Nessun evento per questo giorno</div>` : ''}
+        ${selEvents.map(ev => renderEventItem(ev)).join("")}
+      </div>
+
+      <button class="cal-add-btn" onclick="Calendar.openForm();renderCalendarOnly()">
+        + Aggiungi evento
+      </button>
+    </div>` : ''}
+  `;
+
+  const agendaItems = c.agendaNextDays(60);
+  const agendaBody = agendaItems.length === 0
+    ? `<div class="cal-empty-msg" style="margin-top:16px">Nessun evento nei prossimi 60 giorni~ ♪</div>`
+    : agendaItems.map(g => `<div class="cal-agenda-day">
+        <div class="cal-agenda-date ${g.key === todayKey ? 'today' : ''}">
+          <div class="cal-agenda-dow">${g.date.toLocaleDateString("it-IT",{weekday:"short"})}</div>
+          <div class="cal-agenda-num">${g.date.getDate()}</div>
+          <div class="cal-agenda-mon">${g.date.toLocaleDateString("it-IT",{month:"short"})}</div>
+        </div>
+        <div class="cal-agenda-events">
+          ${g.events.map(ev => renderEventItem(ev, false)).join("")}
+        </div>
+      </div>`).join("");
+
   return `<div class="cal-overlay" onclick="if(event.target===this){Calendar.close();render()}">
     <div class="cal-panel">
       <div class="cal-header">
         <div>
           <div class="cal-title-small">📅 Calendario</div>
-          <div class="cal-month-label">${MESI_IT[c.month]} ${c.year}</div>
+          <div class="cal-month-label">${c.view === "month" ? `${MESI_IT[c.month]} ${c.year}` : "Agenda"}</div>
         </div>
         <button class="cal-close" onclick="Calendar.close();render()">✕</button>
       </div>
 
-      <div class="cal-nav">
-        <button class="cal-nav-btn" onclick="Calendar.prev();renderCalendarOnly()">‹</button>
-        <button class="cal-today-btn" onclick="Calendar.today();renderCalendarOnly()">Oggi</button>
-        <button class="cal-nav-btn" onclick="Calendar.next();renderCalendarOnly()">›</button>
+      <div class="cal-view-tabs">
+        <button class="cal-view-tab ${c.view==='month'?'on':''}" onclick="Calendar.view='month';renderCalendarOnly()">📅 Mese</button>
+        <button class="cal-view-tab ${c.view==='agenda'?'on':''}" onclick="Calendar.view='agenda';renderCalendarOnly()">📋 Agenda</button>
       </div>
 
-      <div class="cal-grid">
-        ${GIORNI_BREVI.map(g=>`<div class="cal-day-name">${g}</div>`).join("")}
-        ${cells.join("")}
-      </div>
+      ${c.view === "month" ? monthBody : agendaBody}
 
-      <div class="cal-legend">
-        <span><span class="cal-dot event"></span> Evento</span>
-        <span><span class="cal-dot task"></span> Task</span>
-        <span><span class="cal-dot holiday"></span> Festa</span>
-      </div>
-
-      ${c.selectedDate ? `<div class="cal-day-detail">
-        <div class="cal-day-header">
-          <div class="cal-day-label">${selLabel}</div>
-          ${selHoliday ? `<div class="cal-holiday-badge">🎊 ${esc(selHoliday)}</div>` : ''}
-        </div>
-
-        ${selTasks.length > 0 ? `<div class="cal-subsection">
-          <div class="cal-subsection-title">📝 Task con reminder</div>
-          ${selTasks.map(t => `<div class="cal-task-item">
-            <span class="cal-task-time">${new Date(t.reminderAt).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}</span>
-            <span class="cal-task-text">${esc(t.text)}</span>
-          </div>`).join("")}
-        </div>` : ''}
-
-        <div class="cal-subsection">
-          <div class="cal-subsection-title">📆 Eventi</div>
-          ${selEvents.length === 0 ? `<div class="cal-empty-msg">Nessun evento per questo giorno</div>` : ''}
-          ${selEvents.map(ev => `<div class="cal-event-item">
-            <div class="cal-event-main">
-              ${ev.time ? `<span class="cal-event-time">${ev.time}</span>` : ''}
-              <div class="cal-event-body">
-                <div class="cal-event-title">${esc(ev.title)}</div>
-                ${ev.note ? `<div class="cal-event-note">${esc(ev.note)}</div>` : ''}
-              </div>
-            </div>
-            <div class="cal-event-actions">
-              <button onclick="Calendar.openForm('${ev.id}');renderCalendarOnly()" title="Modifica">✏️</button>
-              <button onclick="Calendar.deleteEvent('${ev.id}')" title="Elimina">🗑</button>
-            </div>
-          </div>`).join("")}
-        </div>
-
-        <button class="cal-add-btn" onclick="Calendar.openForm();renderCalendarOnly()">
-          + Aggiungi evento
-        </button>
-      </div>` : ''}
-
-      ${c.showForm ? `<div class="cal-form-overlay" onclick="if(event.target===this){Calendar.closeForm();renderCalendarOnly()}">
-        <div class="cal-form">
-          <div class="cal-form-title">${c.editingId ? "Modifica evento" : "Nuovo evento"}</div>
-          <label class="cal-form-label">Titolo</label>
-          <input type="text" class="cal-form-input" value="${esc(c.formTitle)}"
-            oninput="Calendar.formTitle=this.value" placeholder="Es. Cena con Anna">
-          <label class="cal-form-label">Ora</label>
-          <div class="cal-form-time">
-            <select onchange="Calendar.formHour=this.value">${hourOpts}</select>
-            <span>:</span>
-            <select onchange="Calendar.formMin=this.value">${minOpts}</select>
-          </div>
-          <label class="cal-form-label">Note (opzionale)</label>
-          <textarea class="cal-form-input" rows="3"
-            oninput="Calendar.formNote=this.value"
-            placeholder="Dettagli, posto, altro...">${esc(c.formNote)}</textarea>
-          <div class="cal-form-actions">
-            <button class="cal-form-cancel" onclick="Calendar.closeForm();renderCalendarOnly()">Annulla</button>
-            <button class="cal-form-save" onclick="Calendar.saveEvent()">${c.editingId ? "Aggiorna" : "Salva"}</button>
-          </div>
-        </div>
-      </div>` : ''}
+      ${c.showForm ? renderEventForm(hourOpts, minOpts) : ''}
     </div>
   </div>`;
+}
+
+function renderEventForm(hourOpts, minOpts) {
+  const c = Calendar;
+  const reminderOpts = [
+    { v: -1, l: "Nessuno" },
+    { v: 0, l: "All'ora dell'evento" },
+    { v: 5, l: "5 min prima" },
+    { v: 15, l: "15 min prima" },
+    { v: 30, l: "30 min prima" },
+    { v: 60, l: "1 ora prima" },
+    { v: 120, l: "2 ore prima" },
+    { v: 1440, l: "1 giorno prima" },
+  ];
+  const recurOpts = [
+    { v: "none", l: "Non ripetere" },
+    { v: "daily", l: "Ogni giorno" },
+    { v: "weekly", l: "Ogni settimana" },
+    { v: "monthly", l: "Ogni mese" },
+    { v: "yearly", l: "Ogni anno" },
+  ];
+  const catButtons = EVENT_CATS.map(cat => `
+    <button class="cal-cat-btn ${c.formCategory===cat.id?'on':''}"
+            style="--cat-color:${cat.color}"
+            onclick="Calendar.formCategory='${cat.id}';renderEventFormOnly()">
+      ${cat.icon} ${cat.label}
+    </button>`).join("");
+  return `<div class="cal-form-overlay" onclick="if(event.target===this){Calendar.closeForm();renderCalendarOnly()}">
+    <div class="cal-form">
+      <div class="cal-form-title">${c.editingId ? "Modifica evento" : "Nuovo evento"}</div>
+
+      <label class="cal-form-label">Titolo</label>
+      <input type="text" class="cal-form-input" value="${esc(c.formTitle)}"
+        oninput="Calendar.formTitle=this.value" placeholder="Es. Cena con Anna">
+
+      <label class="cal-form-label">Categoria</label>
+      <div class="cal-cat-row">${catButtons}</div>
+
+      <label class="cal-form-label">
+        <input type="checkbox" class="cal-checkbox" ${c.formAllDay?'checked':''}
+          onchange="Calendar.formAllDay=this.checked;renderEventFormOnly()">
+        Tutto il giorno
+      </label>
+
+      ${!c.formAllDay ? `<label class="cal-form-label">Ora</label>
+      <div class="cal-form-time">
+        <select onchange="Calendar.formHour=this.value">${hourOpts}</select>
+        <span>:</span>
+        <select onchange="Calendar.formMin=this.value">${minOpts}</select>
+      </div>` : ""}
+
+      <label class="cal-form-label">🔔 Avvisami</label>
+      <select class="cal-form-input" onchange="Calendar.formReminderOffset=parseInt(this.value)">
+        ${reminderOpts.map(o => `<option value="${o.v}" ${c.formReminderOffset===o.v?'selected':''}>${o.l}</option>`).join("")}
+      </select>
+
+      <label class="cal-form-label">↻ Ripetizione</label>
+      <select class="cal-form-input" onchange="Calendar.formRecurrence=this.value">
+        ${recurOpts.map(o => `<option value="${o.v}" ${c.formRecurrence===o.v?'selected':''}>${o.l}</option>`).join("")}
+      </select>
+
+      <label class="cal-form-label">Note (opzionale)</label>
+      <textarea class="cal-form-input" rows="2"
+        oninput="Calendar.formNote=this.value"
+        placeholder="Dettagli, posto, altro...">${esc(c.formNote)}</textarea>
+
+      <div class="cal-form-actions">
+        <button class="cal-form-cancel" onclick="Calendar.closeForm();renderCalendarOnly()">Annulla</button>
+        <button class="cal-form-save" onclick="Calendar.saveEvent()">${c.editingId ? "Aggiorna" : "Salva"}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* Smart re-render of just the form (preserves focus on the title input) */
+function renderEventFormOnly() {
+  const existing = document.querySelector(".cal-form-overlay");
+  if (!existing) { renderCalendarOnly(); return; }
+  const focusedEl = document.activeElement;
+  const focusedSel = focusedEl && focusedEl.matches(".cal-form-input") ? focusedEl : null;
+  const caretStart = focusedSel ? focusedSel.selectionStart : null;
+  const caretEnd = focusedSel ? focusedSel.selectionEnd : null;
+  const placeholder = focusedSel ? focusedSel.getAttribute("placeholder") : null;
+
+  const hourOpts = Array.from({length:24},(_,i)=>String(i).padStart(2,'0'))
+    .map(h=>`<option value="${h}" ${h===Calendar.formHour?'selected':''}>${h}</option>`).join("");
+  const minOpts  = ["00","05","10","15","20","25","30","35","40","45","50","55"]
+    .map(m=>`<option value="${m}" ${m===Calendar.formMin?'selected':''}>${m}</option>`).join("");
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = renderEventForm(hourOpts, minOpts);
+  const fresh = wrapper.firstElementChild;
+  if (fresh) {
+    existing.replaceWith(fresh);
+    // Restore focus to the same input (matched by placeholder, which is unique within this form)
+    if (placeholder) {
+      const restore = fresh.querySelector(`.cal-form-input[placeholder="${placeholder}"]`);
+      if (restore) {
+        restore.focus();
+        if (caretStart != null) try { restore.setSelectionRange(caretStart, caretEnd); } catch(e) {}
+      }
+    }
+  }
 }
 
 function renderLists() {
@@ -5870,6 +6365,9 @@ function renderHelp() {
         { say: '"Cena con Anna venerdì alle 20"', does: "Crea evento" },
         { say: '"Compleanno Luca domani alle 19"', does: "Crea evento" },
         { say: '"Apri calendario"', does: "Apre il calendario" },
+        { say: '"Quando ho il dentista?"', does: "Cerca evento" },
+        { say: '"Sposta dentista a venerdì alle 15"', does: "Modifica data" },
+        { say: '"Cancella evento cena"', does: "Elimina evento" },
       ],
     },
     {
@@ -6141,6 +6639,7 @@ auth.onAuthStateChanged(user => {
       db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
       listenToTasks();
       Lists.subscribe();
+      Calendar.subscribe();       // F1: events available everywhere from boot
       Prefs.load();              // load preferences from localStorage
       Prefs.pull();               // sync from Firebase in background
       Geofence.start();           // resume any pending geofence triggers (#3)
@@ -6159,7 +6658,7 @@ auth.onAuthStateChanged(user => {
       if (state.proactiveEnabled) scheduleProactive();
       if (WAKE.enabled) WAKE.start();
 
-      setTimeout(() => { checkDueReminders(); render(); }, 2500);
+      setTimeout(() => { checkDueReminders(); Calendar.checkReminders(); render(); }, 2500);
     }
   } else {
     // No user — sign in anonymously
