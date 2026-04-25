@@ -1843,6 +1843,36 @@ const Prefs = {
     state.preferences = {};
     this.save();
   },
+  /* ─── Active personalization helpers (memory phase 2) ─── */
+  // Return the user's first name from preferences or Google account, if known
+  firstName() {
+    // Check explicit preference first
+    const explicit = this.list().find(p => /(?:mi\s+chiamo|sono|nome)/i.test(p.value));
+    if (explicit) {
+      const m = explicit.value.match(/(?:mi\s+chiamo|sono|nome\s+è)\s+([a-zàèéìòù]+)/i);
+      if (m) return m[1].charAt(0).toUpperCase() + m[1].slice(1);
+    }
+    // Fall back to Google account display name (first word only)
+    if (Account.displayName && !Account.isAnonymous) {
+      return Account.displayName.split(/\s+/)[0];
+    }
+    return null;
+  },
+  // Find a stored memory whose value matches one of the given keywords
+  findByTopic(keywords) {
+    const list = this.list();
+    if (list.length === 0) return null;
+    const kws = keywords.map(k => k.toLowerCase());
+    return list.find(p => {
+      const v = p.value.toLowerCase();
+      return kws.some(k => v.includes(k));
+    });
+  },
+  // Pick one memory at random — used for rare conversational sprinkles
+  random() {
+    const list = this.list();
+    return list.length > 0 ? pick(list) : null;
+  },
   // Naive auto-key extraction from "ricordati che X" — try to derive a short label
   deriveKey(text) {
     const t = text.toLowerCase().trim();
@@ -1870,7 +1900,8 @@ const Briefing = {
 
     // Greeting
     const greet = heroGreet();
-    lines.push(`${greet}~! Ecco il tuo briefing 🍞`);
+    const name = Prefs.firstName();
+    lines.push(`${greet}${name?" "+name:""}~! Ecco il tuo briefing 🍞`);
 
     // Weather (if location available)
     try {
@@ -4057,6 +4088,8 @@ async function executeIntent(intent) {
 
 function conversationalReply(text) {
   const t = text.toLowerCase();
+  const name = Prefs.firstName();
+  const namePart = name ? ` ${name}` : "";
 
   // ─── Memory-aware: if user asks something Teto remembers, surface it
   // (#6) "ti ricordi che..." / "cosa ti avevo detto su..." / "che ne pensi del mio..."
@@ -4066,21 +4099,59 @@ function conversationalReply(text) {
     return "Certo! " + pick(list).value;
   }
 
+  // ─── Topic-pertinent memory: cite a memory only when directly relevant ───
+  // Lavoro / studio
+  if (/\b(?:come\s+va\s+il\s+lavoro|come\s+procede\s+il\s+lavoro|del\s+(?:mio\s+)?lavoro|al\s+lavoro|in\s+ufficio|che\s+lavoro\s+faccio)\b/.test(t)) {
+    const m = Prefs.findByTopic(["lavor", "ufficio", "studi", "università", "scuola"]);
+    if (m) return pick([
+      `Ah${namePart}, ricordo: ${m.value}. Tutto bene oggi? ♪`,
+      `Mi hai detto che ${m.value}. Come va?`,
+      `${m.value} — vero? Forza, ce la fai 🍞`,
+    ]);
+  }
+  // Animali
+  if (/\b(?:il\s+mio\s+cane|la\s+mia\s+gatta|il\s+mio\s+gatto|il\s+mio\s+animale|del\s+(?:mio\s+)?cucciolo|coccol)\b/.test(t)) {
+    const m = Prefs.findByTopic(["cane", "gatto", "gatta", "cucciolo", "criceto", "coniglio"]);
+    if (m) return pick([
+      `Aw, ${m.value}~ digli ciao da me! 🐾`,
+      `Mi ricordo: ${m.value}. Coccolal* per me ♡`,
+      `${m.value} è fortunato/a ad avere te 🐾`,
+    ]);
+  }
+  // Cibo / preferenze gusto
+  if (/\b(?:cosa\s+mangio|cosa\s+(?:mi\s+)?cucino|cena\s+stasera|colazione|pranzo|consigli\s+(?:mi\s+)?qualcosa\s+da\s+mangiare|che\s+(?:cosa\s+)?(?:mi\s+)?mangio)\b/.test(t)) {
+    const liked = Prefs.findByTopic(["piace", "amo", "adoro"]);
+    if (liked && /\b(?:cibo|caffè|pasta|pane|pizza|dolce|insalata|carne|pesce|frutta|cucina|mangia|bevu|bere)/i.test(liked.value)) {
+      return `So che ${liked.value} — magari oggi? 🍞`;
+    }
+  }
+  // Casa / posizione
+  if (/\b(?:dove\s+vivo|dove\s+abito|che\s+città|la\s+mia\s+città)\b/.test(t)) {
+    const m = Prefs.findByTopic(["abit", "vivo", "città", "casa\\s+a"]);
+    if (m) return `Mi hai detto: ${m.value} ♪`;
+  }
+  // Stato d'animo / weekly routines
+  if (/\b(?:come\s+sto|come\s+mi\s+sento|che\s+(?:cosa\s+)?faccio\s+(?:oggi|stasera))\b/.test(t)) {
+    const day = ["domenica","lunedì","martedì","mercoledì","giovedì","venerdì","sabato"][new Date().getDay()];
+    const m = Prefs.findByTopic([day]);
+    if (m) return `Di ${day} di solito ${m.value} — facciamo così? ♪`;
+  }
+
   // Greetings
   if (/\b(ciao|salve|ehi|hey|hola|yo|buondì)\b/.test(t)) {
     return pick([
-      "Ciao! Come posso aiutarti?",
-      "Eccomi! Cosa c'è?",
-      "Ciao! Dimmi tutto 🍞",
-      "Ehi! Sono qui, dimmi pure",
+      `Ciao${namePart}! Come posso aiutarti?`,
+      `Eccomi${namePart}! Cosa c'è?`,
+      `Ciao${namePart}! Dimmi tutto 🍞`,
+      `Ehi${namePart}! Sono qui, dimmi pure`,
     ]);
   }
-  if (/\bbuongiorno\b/.test(t))             return pick(["Buongiorno! Che giornata sarà?", "Buongiorno! Pronto per iniziare?", "Buon mattino! ☀️"]);
-  if (/\bbuona\s+giornata\b/.test(t))       return "Buona giornata anche a te~ ♪";
-  if (/\bbuona\s+serata\b/.test(t))         return "Buona serata! Rilassati un po'";
-  if (/\bbuon\s+pomeriggio\b/.test(t))      return "Buon pomeriggio!";
-  if (/\bbuonasera\b/.test(t))              return "Buonasera! Serata tranquilla?";
-  if (/\bbuonanotte\b/.test(t) || /\bbuona\s+notte\b/.test(t)) return pick(["Buonanotte! Sogni d'oro 🌙", "Notte~ dormi bene!"]);
+  if (/\bbuongiorno\b/.test(t))             return pick([`Buongiorno${namePart}! Che giornata sarà?`, `Buongiorno${namePart}! Pronto per iniziare?`, `Buon mattino${namePart}! ☀️`]);
+  if (/\bbuona\s+giornata\b/.test(t))       return `Buona giornata anche a te${namePart}~ ♪`;
+  if (/\bbuona\s+serata\b/.test(t))         return `Buona serata${namePart}! Rilassati un po'`;
+  if (/\bbuon\s+pomeriggio\b/.test(t))      return `Buon pomeriggio${namePart}!`;
+  if (/\bbuonasera\b/.test(t))              return `Buonasera${namePart}! Serata tranquilla?`;
+  if (/\bbuonanotte\b/.test(t) || /\bbuona\s+notte\b/.test(t)) return pick([`Buonanotte${namePart}! Sogni d'oro 🌙`, `Notte${namePart}~ dormi bene!`]);
 
   // "che fai" / "cosa fai"
   if (/\b(?:che|cosa)\s+fai\b|\bche\s+si\s+fa\b/.test(t)) {
@@ -4189,6 +4260,16 @@ function conversationalReply(text) {
   // Just "teto" alone
   if (/^teto\s*$/i.test(t)) {
     return "Eccomi! Cosa ti serve?";
+  }
+
+  // ─── Final fallback: ~10% chance to drop a random memory as a wink ───
+  // Only if we have memories and haven't matched anything specific.
+  if (Math.random() < 0.1) {
+    const m = Prefs.random();
+    if (m) return pick([
+      `Uhm non sono sicura di aver capito... a proposito, ricordo che ${m.value} 🍞`,
+      `Mh~ riformula? Intanto ti dico una cosa che so: ${m.value} ♪`,
+    ]);
   }
 
   return "Uhm, non sono sicura di aver capito. Prova con \"ricordami di...\", \"crea lista...\" o dì \"aiuto\"!";
@@ -5220,9 +5301,8 @@ function render() {
   const progress = computeTodayProgress(s.tasks);
   const ringCirc = 169.65;   // 2π·27
   const ringOffset = ringCirc * (1 - progress.pct / 100);
-  const heroName = (Account.displayName && !Account.isAnonymous)
-    ? ", " + Account.displayName.split(" ")[0]
-    : "";
+  const heroNameVal = Prefs.firstName();
+  const heroName = heroNameVal ? ", " + heroNameVal : "";
   const heroGreetText = heroGreet() + heroName;
   const heroDateText = heroDate();
 
@@ -5813,6 +5893,8 @@ function renderHelp() {
         { say: '"Ricordati che amo il caffè amaro"', does: "Memorizza preferenza" },
         { say: '"Cosa ricordi di me"', does: "Mostra memoria" },
         { say: '"Dimentica che X"', does: "Cancella un ricordo" },
+        { say: '"Come va il lavoro?"', does: "Risposta personalizzata da memoria" },
+        { say: '"Cosa cucino?"', does: "Suggerimento basato sui tuoi gusti" },
       ],
     },
     {
