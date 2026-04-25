@@ -691,6 +691,145 @@ input:focus, textarea:focus { outline:none; border-color:var(--red) !important; 
 [data-theme="dark"] .lists-add-input { color: var(--dark); color-scheme: dark; }
 [data-theme="dark"] .mini-lists-btn { background: var(--cream); }
 
+/* ────────────────────────── LISTS UPGRADES ────────────────────────── */
+/* F-G: Responsive grid */
+@media (max-width: 360px) {
+  .lists-grid { grid-template-columns: 1fr; }
+}
+@media (min-width: 600px) {
+  .lists-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+}
+
+/* U-3: List card category accent (left bar) */
+.list-card {
+  position: relative;
+  border-left: 4px solid var(--list-cat-color, var(--card-border));
+}
+
+/* N-1: card progress bar */
+.list-card-progress {
+  height: 4px; border-radius: 2px;
+  background: rgba(0,0,0,.06);
+  margin-top: 6px; overflow: hidden;
+}
+.list-card-progress-bar {
+  height: 100%; border-radius: 2px;
+  background: var(--red);
+  transition: width .4s cubic-bezier(.3,.9,.4,1);
+}
+
+/* Detail view category-tinted left border on items via inline style; also overall progress bar */
+.list-progress {
+  height: 6px; border-radius: 3px;
+  background: rgba(255,47,94,.08);
+  overflow: hidden;
+  margin: -4px 0 12px;
+}
+.list-progress-bar {
+  height: 100%; border-radius: 3px;
+  background: var(--red);
+  transition: width .5s cubic-bezier(.3,.9,.4,1);
+  box-shadow: 0 0 8px currentColor;
+}
+
+/* U-1: inline edit input */
+.list-item.editing {
+  background: #fff;
+  border: 2px solid var(--red);
+  border-left-width: 4px;
+  padding: 6px 10px;
+  box-shadow: 0 0 0 3px rgba(255,47,94,.1);
+}
+.list-item-edit-input {
+  flex: 1; min-width: 0;
+  padding: 6px 8px; border-radius: 8px;
+  border: none; outline: none;
+  background: transparent;
+  font-family: 'Nunito', sans-serif;
+  font-size: .95rem; font-weight: 600; color: var(--dark);
+}
+.list-item-text { cursor: text; }
+.list-item-text:hover { color: var(--red); }
+[data-theme="dark"] .list-item.editing { background: var(--card); }
+[data-theme="dark"] .list-item-edit-input { color: var(--dark); }
+
+/* U-2: reorder & duplicate icon buttons */
+.icon-btn.move,
+.icon-btn.dup {
+  width: 28px; height: 28px; border-radius: 8px;
+  background: transparent; color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; border: none; flex-shrink: 0;
+  transition: all .12s;
+}
+.icon-btn.move:not(.disabled):hover,
+.icon-btn.dup:hover {
+  background: rgba(255,47,94,.1);
+  color: var(--red);
+}
+.icon-btn.move.disabled { opacity: .25; cursor: default; }
+
+/* U-6: search input */
+.list-search {
+  width: 100%; box-sizing: border-box;
+  padding: 10px 14px; margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1.5px solid var(--card-border);
+  background: var(--cream); color: var(--dark);
+  font-family: 'Nunito', sans-serif;
+  font-size: .9rem; font-weight: 600;
+  outline: none; transition: all .15s;
+}
+.list-search:focus { border-color: var(--red); box-shadow: 0 0 0 3px rgba(255,47,94,.12); }
+[data-theme="dark"] .list-search { color: var(--dark); color-scheme: dark; }
+
+/* F-D: undo banner */
+.list-undo-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; margin-bottom: 10px;
+  border-radius: 12px;
+  background: rgba(255,184,77,.18);
+  border: 1px solid rgba(255,184,77,.3);
+  font-size: .85rem; font-weight: 600;
+  color: var(--deep);
+  animation: cardIn .25s ease;
+}
+.list-undo-banner em {
+  font-style: italic; color: var(--red);
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.list-undo-btn {
+  background: var(--red); color: #fff;
+  padding: 5px 12px; border-radius: 8px;
+  font-size: .78rem; font-weight: 800;
+  flex-shrink: 0; cursor: pointer;
+  border: none;
+}
+[data-theme="dark"] .list-undo-banner { color: var(--dark); background: rgba(255,184,77,.15); }
+
+/* Compact action buttons (icons only) */
+.lists-action-btn {
+  min-width: 38px;
+  padding: 8px 10px;
+}
+
+/* N-2: smooth check animation */
+@keyframes listCheckPop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.4) rotate(8deg); }
+  70%  { transform: scale(.9) rotate(-4deg); }
+  100% { transform: scale(1); }
+}
+.list-item .check-btn.checked {
+  animation: listCheckPop .4s cubic-bezier(.3,1.4,.6,1);
+}
+.list-item-text {
+  transition: color .25s, opacity .25s;
+}
+
+/* ────────────────────────── END LISTS UPGRADES ────────────────────────── */
+
 /* ────────────────────────── MINI CALENDAR BUTTON ────────────────────────── */
 .mini-cal-btn {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -1410,6 +1549,122 @@ textarea.cal-form-input { resize: vertical; min-height: 60px; }
   padding: 16px;
   animation: fadeIn .2s ease;
 }
+
+/* Generic Teto modal (Modal.show) */
+.teto-modal-overlay { z-index: 3000; }
+.teto-modal-overlay .modal-panel {
+  background: var(--card);
+  border: 2px solid var(--red);
+  border-radius: 20px;
+  padding: 18px;
+  width: 100%; max-width: 420px;
+  max-height: 86vh; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  box-shadow: 0 12px 48px rgba(255,47,94,.32);
+  animation: panelIn .25s ease;
+}
+.teto-modal-overlay .modal-title {
+  font-family: 'Fredoka', sans-serif;
+  font-size: 1.2rem; font-weight: 700; color: var(--red);
+  margin-bottom: 8px;
+  text-shadow: 0 2px 0 rgba(163,21,64,.08);
+}
+.teto-modal-overlay .modal-body {
+  font-size: .95rem; color: var(--dark); line-height: 1.5;
+  margin-bottom: 12px;
+  word-break: break-word;
+}
+.teto-modal-overlay .modal-fields { margin-bottom: 14px; }
+.teto-modal-overlay .modal-label {
+  display: block;
+  font-size: .76rem; font-weight: 800; color: var(--deep);
+  text-transform: uppercase; letter-spacing: .04em;
+  margin: 10px 0 6px;
+}
+.teto-modal-overlay .modal-input {
+  width: 100%;
+  padding: 11px 12px; border-radius: 12px;
+  border: 2px solid var(--card-border);
+  background: var(--cream); color: var(--dark);
+  font-family: 'Nunito', sans-serif;
+  font-size: .95rem; font-weight: 600;
+  outline: none; transition: all .15s;
+  box-sizing: border-box;
+}
+.teto-modal-overlay .modal-input:focus {
+  border-color: var(--red); background: #fff;
+  box-shadow: 0 0 0 3px rgba(255,47,94,.12);
+}
+.teto-modal-overlay textarea.modal-input { resize: vertical; min-height: 60px; }
+.teto-modal-overlay select.modal-input {
+  font-family: 'Fredoka', sans-serif;
+}
+.teto-modal-overlay .modal-checkbox-label {
+  display: flex; align-items: center; gap: 8px;
+  font-size: .9rem; font-weight: 700; color: var(--deep);
+  margin: 8px 0;
+  cursor: pointer;
+}
+.teto-modal-overlay .modal-checkbox {
+  width: 18px; height: 18px; accent-color: var(--red);
+}
+.teto-modal-overlay .modal-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(42px, 1fr));
+  gap: 4px;
+  background: rgba(255,47,94,.05);
+  padding: 8px; border-radius: 12px;
+  border: 1.5px solid var(--card-border);
+}
+.teto-modal-overlay .modal-emoji-cell {
+  width: 100%; aspect-ratio: 1;
+  border: none; border-radius: 8px;
+  background: transparent;
+  font-size: 1.4rem; line-height: 1;
+  cursor: pointer; transition: all .12s;
+  display: flex; align-items: center; justify-content: center;
+}
+.teto-modal-overlay .modal-emoji-cell:hover { background: var(--cream); transform: scale(1.1); }
+.teto-modal-overlay .modal-emoji-cell.on {
+  background: linear-gradient(135deg, var(--red), var(--blush));
+  box-shadow: 0 2px 8px rgba(255,47,94,.4);
+  transform: scale(1.05);
+}
+.teto-modal-overlay .modal-actions {
+  display: flex; gap: 8px; justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.teto-modal-overlay .modal-btn {
+  padding: 10px 18px; border-radius: 12px;
+  font-family: 'Nunito', sans-serif; font-weight: 800;
+  font-size: .88rem; min-height: 42px;
+  cursor: pointer; transition: transform .12s;
+  border: 1.5px solid transparent;
+}
+.teto-modal-overlay .modal-btn:hover { transform: translateY(-1px); }
+.teto-modal-overlay .modal-btn-cancel {
+  background: #fff; color: var(--muted);
+  border-color: var(--card-border);
+}
+.teto-modal-overlay .modal-btn-primary {
+  background: linear-gradient(135deg, var(--red), var(--blush));
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(255,47,94,.3);
+}
+.teto-modal-overlay .modal-btn-danger {
+  background: linear-gradient(135deg, #d33, #b22);
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(180,30,30,.3);
+}
+
+[data-theme="dark"] .teto-modal-overlay .modal-panel { background: var(--card); }
+[data-theme="dark"] .teto-modal-overlay .modal-input,
+[data-theme="dark"] .teto-modal-overlay select.modal-input { color: var(--dark); color-scheme: dark; }
+[data-theme="dark"] .teto-modal-overlay .modal-body,
+[data-theme="dark"] .teto-modal-overlay .modal-checkbox-label { color: var(--dark); }
+[data-theme="dark"] .teto-modal-overlay .modal-emoji-grid { background: rgba(255,107,142,.08); }
+
+/* ────────────────────────── PLAN MODAL CONT ────────────────────────── */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .plan-modal {
   background: var(--card);
@@ -1794,7 +2049,7 @@ const Account = {
   },
 
   async signOut() {
-    if (!confirm("Disconnettersi? I dati resteranno nel cloud ma non saranno più visibili qui.")) return;
+    if (!await Modal.confirm("Disconnettersi? I dati resteranno nel cloud ma non saranno più visibili qui.", { title: "Disconnetti", danger: true, okLabel: "Disconnetti" })) return;
     try {
       await auth.signOut();
       // Auto-login as anonymous so app keeps working
@@ -2222,6 +2477,157 @@ const Focus = {
       const el = document.getElementById("focus-clock");
       if (el) el.textContent = new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
     }, 1000);
+  },
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   🪟 MODAL — in-theme replacement for prompt/confirm/choice
+   ═══════════════════════════════════════════════════════════════ */
+const Modal = {
+  _activeKeydown: null,
+
+  // Generic show: opts = { title, body, fields?, actions, dismissible? }
+  // fields: [{ id, label, type, value, placeholder, options? }]
+  // actions: [{ label, value, primary?, danger? }]
+  // Returns Promise<resultValue or null>
+  show(opts) {
+    return new Promise(resolve => {
+      const overlay = document.createElement("div");
+      overlay.className = "modal-overlay teto-modal-overlay";
+      const fieldsHTML = (opts.fields || []).map(f => {
+        const id = "modal-f-" + f.id;
+        if (f.type === "textarea") {
+          return `<label class="modal-label">${esc(f.label || "")}</label>
+            <textarea id="${id}" class="modal-input" rows="3" placeholder="${esc(f.placeholder||"")}">${esc(f.value||"")}</textarea>`;
+        }
+        if (f.type === "select") {
+          const opts = (f.options || []).map(o => `<option value="${esc(o.value)}" ${o.value===f.value?'selected':''}>${esc(o.label)}</option>`).join("");
+          return `<label class="modal-label">${esc(f.label || "")}</label>
+            <select id="${id}" class="modal-input">${opts}</select>`;
+        }
+        if (f.type === "checkbox") {
+          return `<label class="modal-checkbox-label">
+            <input id="${id}" type="checkbox" class="modal-checkbox" ${f.value?'checked':''}>
+            ${esc(f.label || "")}
+          </label>`;
+        }
+        if (f.type === "emoji-picker") {
+          const list = (f.options || []);
+          const cells = list.map(e => `<button type="button" class="modal-emoji-cell ${e===f.value?'on':''}" data-val="${esc(e)}">${e}</button>`).join("");
+          return `<label class="modal-label">${esc(f.label || "")}</label>
+            <div class="modal-emoji-grid" data-field-id="${id}" data-current="${esc(f.value||"")}">${cells}</div>`;
+        }
+        // default: text
+        return `<label class="modal-label">${esc(f.label || "")}</label>
+          <input id="${id}" type="text" class="modal-input" value="${esc(f.value||"")}" placeholder="${esc(f.placeholder||"")}" autocomplete="off">`;
+      }).join("");
+
+      const actionsArr = opts.actions || [{label:"OK", value:true, primary:true}];
+      const actionsHTML = actionsArr.map((a, idx) => {
+        const cls = a.primary ? "modal-btn-primary" : a.danger ? "modal-btn-danger" : "modal-btn-cancel";
+        return `<button class="modal-btn ${cls}" data-idx="${idx}">${esc(a.label)}</button>`;
+      }).join("");
+
+      overlay.innerHTML = `
+        <div class="modal-panel" role="dialog" aria-modal="true">
+          ${opts.title ? `<div class="modal-title">${esc(opts.title)}</div>` : ""}
+          ${opts.body ? `<div class="modal-body">${esc(opts.body)}</div>` : ""}
+          ${fieldsHTML ? `<div class="modal-fields">${fieldsHTML}</div>` : ""}
+          <div class="modal-actions">${actionsHTML}</div>
+        </div>`;
+
+      const close = (result) => {
+        try { overlay.remove(); } catch(e) {}
+        if (Modal._activeKeydown) { document.removeEventListener("keydown", Modal._activeKeydown); Modal._activeKeydown = null; }
+        resolve(result);
+      };
+
+      // Cancel on overlay click (only if dismissible !== false)
+      if (opts.dismissible !== false) {
+        overlay.addEventListener("click", e => { if (e.target === overlay) close(null); });
+      }
+
+      // Wire action buttons
+      overlay.querySelectorAll(".modal-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const idx = parseInt(btn.dataset.idx, 10);
+          const action = actionsArr[idx];
+          // Collect field values for primary/non-cancel actions
+          if (action.value === null || action.value === false) { close(action.value); return; }
+          const values = {};
+          (opts.fields || []).forEach(f => {
+            const el = overlay.querySelector("#modal-f-" + f.id);
+            if (!el) return;
+            if (f.type === "checkbox") values[f.id] = el.checked;
+            else if (f.type === "emoji-picker") {
+              const grid = overlay.querySelector(`.modal-emoji-grid[data-field-id="modal-f-${f.id}"]`);
+              values[f.id] = grid ? grid.dataset.current : f.value;
+            }
+            else values[f.id] = el.value;
+          });
+          close({ action: action.value, values });
+        });
+      });
+
+      // Wire emoji picker selection
+      overlay.querySelectorAll(".modal-emoji-grid").forEach(grid => {
+        grid.querySelectorAll(".modal-emoji-cell").forEach(cell => {
+          cell.addEventListener("click", () => {
+            grid.dataset.current = cell.dataset.val;
+            grid.querySelectorAll(".modal-emoji-cell").forEach(c => c.classList.toggle("on", c.dataset.val === cell.dataset.val));
+          });
+        });
+      });
+
+      // Keyboard: Esc to cancel, Enter to confirm primary
+      Modal._activeKeydown = (e) => {
+        if (e.key === "Escape" && opts.dismissible !== false) { e.preventDefault(); close(null); }
+        if (e.key === "Enter" && !e.shiftKey) {
+          // Don't trigger inside textarea
+          if (e.target.tagName === "TEXTAREA") return;
+          const primary = overlay.querySelector(".modal-btn-primary");
+          if (primary) { e.preventDefault(); primary.click(); }
+        }
+      };
+      document.addEventListener("keydown", Modal._activeKeydown);
+
+      document.body.appendChild(overlay);
+
+      // Focus first input/textarea
+      setTimeout(() => {
+        const first = overlay.querySelector(".modal-input");
+        if (first) { first.focus(); if (first.select) try { first.select(); } catch(e) {} }
+      }, 50);
+    });
+  },
+
+  // Convenience: confirm dialog. Returns true/false.
+  async confirm(message, opts = {}) {
+    const result = await this.show({
+      title: opts.title || null,
+      body: message,
+      actions: [
+        { label: opts.cancelLabel || "Annulla", value: false },
+        { label: opts.okLabel || "Conferma", value: true, primary: !opts.danger, danger: !!opts.danger },
+      ],
+    });
+    return result && result.action === true;
+  },
+
+  // Convenience: prompt dialog. Returns string or null.
+  async prompt(label, defaultValue = "", opts = {}) {
+    const result = await this.show({
+      title: opts.title || null,
+      body: opts.body || null,
+      fields: [{ id: "v", label, type: "text", value: defaultValue, placeholder: opts.placeholder || "" }],
+      actions: [
+        { label: "Annulla", value: false },
+        { label: opts.okLabel || "OK", value: true, primary: true },
+      ],
+    });
+    if (!result || result.action !== true) return null;
+    const v = (result.values?.v || "").trim();
+    return v || null;
   },
 };
 
@@ -3554,6 +3960,39 @@ function detectIntent(rawText) {
     return { kind: "list_delete", name: stripArticles(m[1]) };
   }
 
+  // ─── LIST: CHECK ITEM (V-2) ──────────────────────────────
+  // "spunta/segna X dalla/nella lista Y" / "spunta X" (one list match)
+  if ((m = lower.match(/^(?:spunta|segna(?:re)?(?:\s+come\s+fatt[oa])?|completa(?:re)?|fatto)\s+(.+?)\s+(?:dalla|nella|nelle|della|dalle|sulla|in|dal)\s+(?:lista\s+)?(.+)/i))) {
+    return { kind: "list_check", item: m[1].trim(), listName: stripArticles(m[2]) };
+  }
+
+  // ─── LIST: EDIT ITEM (V-1) ───────────────────────────────
+  // "modifica X in Y nella lista Z" / "cambia X con Y nella lista Z"
+  if ((m = lower.match(/^(?:modifica(?:re)?|cambia(?:re)?|sostituis(?:ci|cire))\s+(.+?)\s+(?:in|con)\s+(.+?)\s+(?:nella|dalla|della|sulla)\s+(?:lista\s+)?(.+)/i))) {
+    return { kind: "list_edit", oldText: m[1].trim(), newText: m[2].trim(), listName: stripArticles(m[3]) };
+  }
+
+  // ─── LIST: CLEAR (V-3) ───────────────────────────────────
+  // "svuota la lista X" / "cancella tutte le voci della lista X"
+  if ((m = lower.match(/^(?:svuota(?:re)?|pulis(?:ci|cire))\s+(?:la\s+)?lista\s+(.+)/i))) {
+    return { kind: "list_clear", name: stripArticles(m[1]) };
+  }
+  if ((m = lower.match(/^cancella(?:re)?\s+(?:tutt[ie]\s+(?:le\s+)?voci\s+)?(?:della|dalla)\s+(?:lista\s+)?(.+)/i))) {
+    return { kind: "list_clear", name: stripArticles(m[1]) };
+  }
+
+  // ─── LIST: COUNT (V-4) ───────────────────────────────────
+  // "quante voci ho nella/sulla lista X" / "quanto è lunga la lista X"
+  if ((m = lower.match(/^(?:quante\s+voci|quanti\s+element[ie]|quanto\s+è\s+lunga)\s+(?:ho\s+)?(?:nella|della|sulla|in|sul|nel)\s+(?:lista\s+)?(.+?)[?!.]*$/i))) {
+    return { kind: "list_count", name: stripArticles(m[1]) };
+  }
+
+  // ─── LIST: SHARE (V-5) ───────────────────────────────────
+  // "condividi/manda/invia (la) lista X (a Y)" / "esporta lista X"
+  if ((m = lower.match(/^(?:condividi(?:mi)?|manda(?:mi)?|invia(?:mi)?|esporta|copia)\s+(?:la\s+)?lista\s+(.+?)(?:\s+a\s+.+)?[?!.]*$/i))) {
+    return { kind: "list_share", name: stripArticles(m[1]) };
+  }
+
   // ─── LIST: ADD ───────────────────────────────────────────
   // "aggiungi X alla/nella lista Y"
   if ((m = lower.match(/^(?:aggiung(?:i|imi|ere|ermi|iamo)|mett(?:i|imi|ere|ermi|iamo)|inseris(?:ci|cere|cimi|cermi)|salva(?:re|mi|rmi)?|scriv(?:i|ere|imi|ermi)|segna(?:re|mi|rmi)?|annota(?:re|mi|rmi)?|appunta(?:re|mi|rmi)?)\s+(.+?)\s+(?:alla|nella|in|sulla|sul|nel|al)\s+lista\s+(.+)/i))) {
@@ -3987,6 +4426,58 @@ async function executeIntent(intent) {
         return `Nella lista ${list.name} ci sono: ${items.map(i=>i.text).join(", ")}`;
       }
       return `${list.emoji} ${list.name}: ${items.length} voci. L'ho aperta per te`;
+    }
+    case "list_check": {
+      const list = Lists.findByName(intent.listName);
+      if (!list) return `Non ho trovato la lista "${intent.listName}"`;
+      if (!list.checkable) return `La lista ${list.name} non è spuntabile (è una nota). Cambia tipo dalle azioni della lista`;
+      const arr = Lists.items[list.id] || [];
+      const q = intent.item.toLowerCase().trim();
+      const found = arr.find(it => !it.done && it.text.toLowerCase().includes(q));
+      if (!found) return `Non trovo "${intent.item}" tra le voci da fare di ${list.name}`;
+      await Lists.toggleItem(list.id, found.id, false);
+      return `Spuntato "${found.text}" da ${list.name} ✓`;
+    }
+    case "list_edit": {
+      const list = Lists.findByName(intent.listName);
+      if (!list) return `Non ho trovato la lista "${intent.listName}"`;
+      const arr = Lists.items[list.id] || [];
+      const q = intent.oldText.toLowerCase().trim();
+      const found = arr.find(it => it.text.toLowerCase().includes(q));
+      if (!found) return `Non trovo "${intent.oldText}" in ${list.name}`;
+      await Lists.updateItem(list.id, found.id, intent.newText);
+      return `Modificato in ${list.name}: "${intent.newText}" ♪`;
+    }
+    case "list_clear": {
+      const list = Lists.findByName(intent.name);
+      if (!list) return `Non ho trovato la lista "${intent.name}"`;
+      const arr = Lists.items[list.id] || [];
+      if (arr.length === 0) return `La lista ${list.name} è già vuota~ ♪`;
+      const ok = await Modal.confirm(`Cancellare tutte le ${arr.length} voci di "${list.name}"?`, { title: "Svuota lista", danger: true, okLabel: "Svuota" });
+      if (!ok) return "Ok, niente da fare";
+      const batch = db.batch();
+      const col = db.collection("users").doc(state.uid).collection("lists").doc(list.id).collection("items");
+      arr.forEach(it => batch.delete(col.doc(it.id)));
+      await batch.commit();
+      return `Lista ${list.name} svuotata ✨`;
+    }
+    case "list_count": {
+      const list = Lists.findByName(intent.name);
+      if (!list) return `Non ho trovato la lista "${intent.name}"`;
+      const arr = Lists.items[list.id] || [];
+      if (arr.length === 0) return `La lista ${list.name} è vuota`;
+      if (list.checkable) {
+        const pending = arr.filter(i => !i.done).length;
+        const done = arr.length - pending;
+        return `${list.name}: ${pending} da fare, ${done} ${done===1?"completata":"completate"}`;
+      }
+      return `Nella lista ${list.name} ci sono ${arr.length} ${arr.length===1?"voce":"voci"}`;
+    }
+    case "list_share": {
+      const list = Lists.findByName(intent.name);
+      if (!list) return `Non ho trovato la lista "${intent.name}"`;
+      Lists.share(list.id);
+      return null;   // share() shows its own bubble
     }
     case "chat": {
       return conversationalReply(intent.text);
@@ -4484,6 +4975,24 @@ const EVENT_CATS = [
 ];
 const EVENT_CAT_BY_ID = Object.fromEntries(EVENT_CATS.map(c => [c.id, c]));
 
+/* List categories with colors (U-3) */
+const LIST_CATS = [
+  { id: "general",  label: "Generale", color: "#ff2f5e" },
+  { id: "shopping", label: "Spesa",    color: "#10b981" },
+  { id: "work",     label: "Lavoro",   color: "#3b82f6" },
+  { id: "ideas",    label: "Idee",     color: "#f59e0b" },
+  { id: "media",    label: "Media",    color: "#8b5cf6" },
+];
+const LIST_CAT_BY_ID = Object.fromEntries(LIST_CATS.map(c => [c.id, c]));
+
+/* Emoji palette for list custom emoji picker (U-4) */
+const LIST_EMOJI_PALETTE = [
+  "📝","📋","✅","🛒","🥖","🍎","🥦","🍕","🍷","☕",
+  "🎬","📺","📚","🎵","🎮","✈️","🏖️","🏠","🚗","🛠️",
+  "💼","💡","🎁","💗","🌸","🐾","💪","🏃","🧘","💊",
+  "🎨","✨","⭐","🔥","🌟","💎","🍞","🌙","☀️","🌈",
+];
+
 /**
  * Calculate Italian national holidays (including Easter via Gauss algorithm)
  */
@@ -4779,11 +5288,14 @@ const Calendar = {
    ═══════════════════════════════════════════════════════════════ */
 const Lists = {
   open_: false,
-  lists: [],                // [{ id, name, emoji, checkable, ts }]
-  items: {},                // { listId: [{ id, text, done, ts }] }
+  lists: [],                // [{ id, name, emoji, checkable, category, ts }]
+  items: {},                // { listId: [{ id, text, done, position, ts }] }
   currentListId: null,
   unsubLists: null,
   unsubItems: {},           // { listId: unsub }
+  search: "",               // U-6: detail search query
+  editingItemId: null,      // U-1: which item is in inline edit mode
+  undoItem: null,           // F-D: last deleted { listId, item, timer }
 
   findByName(name) {
     if (!name) return null;
@@ -4814,9 +5326,18 @@ const Lists = {
     this.unsubLists = db.collection("users").doc(state.uid).collection("lists")
       .orderBy("ts","desc").onSnapshot(snap => {
         this.lists = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const liveIds = new Set(this.lists.map(l => l.id));
         // Subscribe to items of each list once
         for (const l of this.lists) {
           if (!this.unsubItems[l.id]) this.subscribeItems(l.id);
+        }
+        // F-F: clean up subscriptions of lists that no longer exist
+        for (const id of Object.keys(this.unsubItems)) {
+          if (!liveIds.has(id)) {
+            try { this.unsubItems[id](); } catch(e) {}
+            delete this.unsubItems[id];
+            delete this.items[id];
+          }
         }
         if (this.open_) renderListsOnly();
       });
@@ -4854,16 +5375,21 @@ const Lists = {
   back() {
     this.currentListId = null;
   },
-  async createList(name, checkable = false) {
+  async createList(name, opts = {}) {
     const id = genId();
-    const emoji = guessListEmoji(name);
+    const emoji = opts.emoji || guessListEmoji(name);
+    const checkable = opts.checkable !== undefined ? opts.checkable : false;
+    const category = opts.category || "general";
     await db.collection("users").doc(state.uid).collection("lists").doc(id).set({
-      name, emoji, checkable, ts: Date.now(),
+      name, emoji, checkable, category, ts: Date.now(),
     });
     return id;
   },
   async deleteList(id) {
-    if (!confirm("Eliminare la lista? Anche le voci verranno cancellate.")) return;
+    const list = this.lists.find(l => l.id === id);
+    const itemCount = (this.items[id] || []).length;
+    const detail = list ? `Eliminerai "${list.name}"${itemCount > 0 ? ` e le sue ${itemCount} voci` : ""}.` : "";
+    if (!await Modal.confirm(detail, { title: "Eliminare la lista?", danger: true, okLabel: "Elimina" })) return;
     // Delete all items first
     const itemsSnap = await db.collection("users").doc(state.uid)
       .collection("lists").doc(id).collection("items").get();
@@ -4880,16 +5406,25 @@ const Lists = {
     await db.collection("users").doc(state.uid).collection("lists").doc(id)
       .update({ checkable: !current });
   },
-  async renameList(id, newName) {
-    const emoji = guessListEmoji(newName);
+  async renameList(id, newName, newEmoji = null, newCategory = null) {
+    const update = { name: newName };
+    if (newEmoji) update.emoji = newEmoji;
+    else update.emoji = guessListEmoji(newName);
+    if (newCategory) update.category = newCategory;
+    await db.collection("users").doc(state.uid).collection("lists").doc(id).update(update);
+  },
+  async setCategory(id, category) {
     await db.collection("users").doc(state.uid).collection("lists").doc(id)
-      .update({ name: newName, emoji });
+      .update({ category });
   },
   async addItem(listId, text) {
     if (!text.trim()) return;
+    // U-2: pick the highest existing position so new items go to the bottom of pending
+    const arr = this.items[listId] || [];
+    const maxPos = arr.reduce((a, x) => Math.max(a, x.position ?? 0), 0);
     await db.collection("users").doc(state.uid).collection("lists").doc(listId)
       .collection("items").add({
-        text: text.trim(), done: false, ts: Date.now(),
+        text: text.trim(), done: false, position: maxPos + 1, ts: Date.now(),
       });
   },
   async toggleItem(listId, itemId, done) {
@@ -4898,9 +5433,149 @@ const Lists = {
     haptic(8);
   },
   async deleteItem(listId, itemId) {
+    // F-D: store for undo before deleting
+    const arr = this.items[listId] || [];
+    const item = arr.find(x => x.id === itemId);
     await db.collection("users").doc(state.uid).collection("lists").doc(listId)
       .collection("items").doc(itemId).delete();
     haptic(6);
+    if (item) {
+      // Cancel previous undo if any
+      if (this.undoItem && this.undoItem.timer) clearTimeout(this.undoItem.timer);
+      this.undoItem = {
+        listId, item,
+        timer: setTimeout(() => { this.undoItem = null; renderListsOnly(); }, 6000)
+      };
+      renderListsOnly();
+    }
+  },
+  async undoDeleteItem() {
+    if (!this.undoItem) return;
+    const { listId, item } = this.undoItem;
+    if (this.undoItem.timer) clearTimeout(this.undoItem.timer);
+    this.undoItem = null;
+    // Re-create with same fields (new id, but same content)
+    await db.collection("users").doc(state.uid).collection("lists").doc(listId)
+      .collection("items").add({
+        text: item.text, done: !!item.done,
+        position: item.position ?? Date.now(),
+        ts: Date.now(),
+      });
+    showBubble("Voce ripristinata~ ♪");
+    haptic(8);
+  },
+  async updateItem(listId, itemId, text) {
+    if (!text.trim()) return;
+    await db.collection("users").doc(state.uid).collection("lists").doc(listId)
+      .collection("items").doc(itemId).update({ text: text.trim() });
+    haptic(6);
+  },
+  async duplicateItem(listId, itemId) {
+    const arr = this.items[listId] || [];
+    const it = arr.find(x => x.id === itemId);
+    if (!it) return;
+    const maxPos = arr.reduce((a, x) => Math.max(a, x.position ?? 0), 0);
+    await db.collection("users").doc(state.uid).collection("lists").doc(listId)
+      .collection("items").add({
+        text: it.text, done: false,
+        position: maxPos + 1, ts: Date.now(),
+      });
+    haptic(8);
+  },
+  async moveItem(listId, itemId, direction) {
+    // U-2: swap positions with the previous/next pending sibling
+    const arr = this.items[listId] || [];
+    const pending = this.sortedItems(listId).pending;
+    const idx = pending.findIndex(x => x.id === itemId);
+    if (idx < 0) return;
+    const targetIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= pending.length) return;
+    const a = pending[idx], b = pending[targetIdx];
+    const aPos = a.position ?? a.ts;
+    const bPos = b.position ?? b.ts;
+    const batch = db.batch();
+    const col = db.collection("users").doc(state.uid).collection("lists").doc(listId).collection("items");
+    batch.update(col.doc(a.id), { position: bPos });
+    batch.update(col.doc(b.id), { position: aPos });
+    await batch.commit();
+    haptic(6);
+  },
+  async clearCompleted(listId) {
+    const arr = this.items[listId] || [];
+    const done = arr.filter(x => x.done);
+    if (done.length === 0) return;
+    if (!await Modal.confirm(`Eliminare ${done.length} ${done.length===1?"voce completata":"voci completate"}?`, { title: "Pulisci completate", danger: true, okLabel: "Elimina" })) return;
+    const batch = db.batch();
+    const col = db.collection("users").doc(state.uid).collection("lists").doc(listId).collection("items");
+    done.forEach(it => batch.delete(col.doc(it.id)));
+    await batch.commit();
+    showBubble(`${done.length} voci pulite ✨`);
+    haptic(10);
+  },
+  async toggleAll(listId, allChecked) {
+    const arr = this.items[listId] || [];
+    if (arr.length === 0) return;
+    const newDone = !allChecked;   // if all checked, uncheck all; otherwise check all
+    const batch = db.batch();
+    const col = db.collection("users").doc(state.uid).collection("lists").doc(listId).collection("items");
+    arr.forEach(it => {
+      if (it.done !== newDone) batch.update(col.doc(it.id), { done: newDone });
+    });
+    await batch.commit();
+    haptic(10);
+  },
+  async clearAllItems(listId) {
+    const arr = this.items[listId] || [];
+    if (arr.length === 0) return;
+    if (!await Modal.confirm(`Cancellare tutte le ${arr.length} voci? La lista resta.`, { title: "Svuota lista", danger: true, okLabel: "Svuota" })) return;
+    const batch = db.batch();
+    const col = db.collection("users").doc(state.uid).collection("lists").doc(listId).collection("items");
+    arr.forEach(it => batch.delete(col.doc(it.id)));
+    await batch.commit();
+    showBubble("Lista svuotata ✨");
+    haptic(10);
+  },
+  // Format list as text for sharing (U-7)
+  formatForShare(listId) {
+    const list = this.lists.find(l => l.id === listId);
+    if (!list) return "";
+    const arr = this.items[listId] || [];
+    const sorted = [...arr].sort((a,b) => (a.position ?? a.ts) - (b.position ?? b.ts));
+    const lines = [`${list.emoji} ${list.name}`, ""];
+    sorted.forEach(it => {
+      const mark = list.checkable ? (it.done ? "[✓] " : "[ ] ") : "• ";
+      lines.push(mark + it.text);
+    });
+    lines.push("", "— TetoTask 🍞");
+    return lines.join("\n");
+  },
+  async share(listId) {
+    const text = this.formatForShare(listId);
+    if (!text) return;
+    if (navigator.share) {
+      try { await navigator.share({ text }); return; }
+      catch(e) { /* user cancelled or unsupported, fall through */ }
+    }
+    // Fallback: copy to clipboard
+    try {
+      await navigator.clipboard.writeText(text);
+      showBubble("Lista copiata negli appunti~ ♪");
+    } catch(e) {
+      // Last resort: show in modal
+      await Modal.show({
+        title: "Lista pronta per la condivisione",
+        body: "La condivisione automatica non è disponibile. Copia il testo qui sotto.",
+        fields: [{ id: "v", label: "", type: "textarea", value: text }],
+        actions: [{ label: "Chiudi", value: true, primary: true }],
+      });
+    }
+  },
+  // U-2: sorted items split into pending (by position) and done (by ts desc)
+  sortedItems(listId) {
+    const arr = this.items[listId] || [];
+    const pending = arr.filter(x => !x.done).slice().sort((a,b) => (a.position ?? a.ts) - (b.position ?? b.ts));
+    const done    = arr.filter(x =>  x.done).slice().sort((a,b) => (b.ts || 0) - (a.ts || 0));
+    return { pending, done };
   },
   readAloud(listId) {
     const list = this.lists.find(l => l.id === listId);
@@ -4913,6 +5588,55 @@ const Lists = {
     const filtered = list.checkable ? items.filter(i=>!i.done) : items;
     const text = `Lista ${list.name}. ${filtered.map((i,idx)=>`${idx+1}: ${i.text}`).join(". ")}`;
     TTS.speak(text, { force: true });
+  },
+
+  // U-4: full modal create flow
+  async createListInteractive() {
+    const result = await Modal.show({
+      title: "Nuova lista",
+      fields: [
+        { id: "name", label: "Nome", type: "text", placeholder: "Es. Spesa, Film, Idee..." },
+        { id: "emoji", label: "Emoji", type: "emoji-picker", value: "📝", options: LIST_EMOJI_PALETTE },
+        { id: "category", label: "Categoria", type: "select", value: "general",
+          options: LIST_CATS.map(c => ({ value: c.id, label: c.label })) },
+        { id: "checkable", label: "Voci spuntabili (tipo to-do)", type: "checkbox", value: false },
+      ],
+      actions: [
+        { label: "Annulla", value: false },
+        { label: "Crea", value: true, primary: true },
+      ],
+    });
+    if (!result || result.action !== true) return;
+    const name = (result.values.name || "").trim();
+    if (!name) { showBubble("Dai un nome alla lista~"); return; }
+    const id = await this.createList(name, {
+      emoji: result.values.emoji,
+      category: result.values.category,
+      checkable: !!result.values.checkable,
+    });
+    this.openList(id);
+    render();
+  },
+  async editListInteractive(listId) {
+    const list = this.lists.find(l => l.id === listId);
+    if (!list) return;
+    const result = await Modal.show({
+      title: "Modifica lista",
+      fields: [
+        { id: "name", label: "Nome", type: "text", value: list.name },
+        { id: "emoji", label: "Emoji", type: "emoji-picker", value: list.emoji || "📝", options: LIST_EMOJI_PALETTE },
+        { id: "category", label: "Categoria", type: "select", value: list.category || "general",
+          options: LIST_CATS.map(c => ({ value: c.id, label: c.label })) },
+      ],
+      actions: [
+        { label: "Annulla", value: false },
+        { label: "Salva", value: true, primary: true },
+      ],
+    });
+    if (!result || result.action !== true) return;
+    const name = (result.values.name || "").trim() || list.name;
+    await this.renameList(list.id, name, result.values.emoji, result.values.category);
+    haptic(6);
   },
 };
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
@@ -5746,7 +6470,7 @@ function render() {
               <button class="memory-del" onclick="Prefs.remove('${esc(p.key)}');render()" title="Dimentica">×</button>
             </div>`).join("")
         }
-        ${Prefs.list().length > 0 ? `<button class="reminder-clear" style="width:100%;margin-top:8px" onclick="if(confirm('Cancellare tutti i ricordi?')){Prefs.clear();render()}">🗑️ Svuota memoria</button>` : ""}
+        ${Prefs.list().length > 0 ? `<button class="reminder-clear" style="width:100%;margin-top:8px" onclick="Modal.confirm('Cancellare tutti i ricordi?',{title:'Svuota memoria',danger:true,okLabel:'Svuota'}).then(ok=>{if(ok){Prefs.clear();render()}})">🗑️ Svuota memoria</button>` : ""}
       </div>` : ""}
 
       <div class="settings-section-title" style="margin-top:14px">⚙️ Altro</div>
@@ -5974,13 +6698,58 @@ function renderCalendarOnly() {
 }
 function renderListsOnly() {
   if (!Lists.open_) { render(); return; }
-  const existing = document.querySelector(".lists-overlay");
+  // Find the lists overlay: it shares the .cal-overlay class but is uniquely identified
+  // by the "Liste" close handler. Find by querying the panel content marker.
+  const allOverlays = document.querySelectorAll(".cal-overlay");
+  let existing = null;
+  for (const ov of allOverlays) {
+    // Heuristic: lists overlay has the "Liste" back button OR the lists grid OR the lists title
+    if (ov.querySelector(".lists-back, .lists-grid, .lists-title-row")) { existing = ov; break; }
+  }
   if (!existing) { render(); return; }
+
+  // F-B: preserve focus state of inputs that survive the re-render
+  const focusedEl = document.activeElement;
+  const wasFocusedAddInput = focusedEl && focusedEl.id === "listAddInput";
+  const wasFocusedSearch   = focusedEl && focusedEl.classList.contains("list-search");
+  const wasFocusedEdit     = focusedEl && focusedEl.classList.contains("list-item-edit-input");
+  const focusedEditId      = wasFocusedEdit ? focusedEl.id : null;
+  const carryValue         = wasFocusedAddInput ? focusedEl.value : null;
+  const carryCaretStart    = focusedEl?.selectionStart ?? null;
+  const carryCaretEnd      = focusedEl?.selectionEnd ?? null;
+  const scrollTop          = existing.querySelector(".cal-panel")?.scrollTop || 0;
+
   const wrapper = document.createElement("div");
   wrapper.innerHTML = renderLists();
   const fresh = wrapper.firstElementChild;
-  if (fresh) existing.replaceWith(fresh);
-  else render();
+  if (!fresh) { render(); return; }
+  existing.replaceWith(fresh);
+
+  // Restore scroll
+  const newPanel = fresh.querySelector(".cal-panel");
+  if (newPanel) newPanel.scrollTop = scrollTop;
+
+  // Restore focus + value + caret
+  if (wasFocusedAddInput) {
+    const input = fresh.querySelector("#listAddInput");
+    if (input) {
+      if (carryValue !== null) input.value = carryValue;
+      input.focus();
+      try { input.setSelectionRange(carryCaretStart ?? input.value.length, carryCaretEnd ?? input.value.length); } catch(e) {}
+    }
+  } else if (wasFocusedSearch) {
+    const input = fresh.querySelector(".list-search");
+    if (input) {
+      input.focus();
+      try { input.setSelectionRange(carryCaretStart ?? input.value.length, carryCaretEnd ?? input.value.length); } catch(e) {}
+    }
+  } else if (wasFocusedEdit && focusedEditId) {
+    const input = fresh.querySelector("#" + focusedEditId);
+    if (input) {
+      input.focus();
+      try { input.setSelectionRange(carryCaretStart ?? input.value.length, carryCaretEnd ?? input.value.length); } catch(e) {}
+    }
+  }
 }
 
 function renderCalendar() {
@@ -6062,7 +6831,7 @@ function renderCalendar() {
       </div>
       <div class="cal-event-actions">
         <button onclick="Calendar.openForm('${ev.id}');renderCalendarOnly()" title="Modifica">✏️</button>
-        <button onclick="if(confirm('Eliminare ${esc(ev.title).replace(/'/g,'’')}?')){Calendar.deleteEvent('${ev.id}')}" title="Elimina">🗑</button>
+        <button onclick="Modal.confirm('Eliminerai &quot;${esc(ev.title).replace(/'/g,'’').replace(/&/g,'&amp;')}&quot;.',{title:'Eliminare evento?',danger:true,okLabel:'Elimina'}).then(ok=>{if(ok)Calendar.deleteEvent('${ev.id}')})" title="Elimina">🗑</button>
       </div>
     </div>`;
   };
@@ -6256,55 +7025,101 @@ function renderLists() {
     // List detail view
     const list = L.lists.find(x => x.id === L.currentListId);
     if (!list) return "";
-    const items = L.items[list.id] || [];
-    const activeCount = list.checkable ? items.filter(i=>!i.done).length : items.length;
-    const doneItems = list.checkable ? items.filter(i=>i.done) : [];
-    const pendingItems = list.checkable ? items.filter(i=>!i.done) : items;
+    const cat = LIST_CAT_BY_ID[list.category] || LIST_CAT_BY_ID.general;
+    const { pending, done: doneItems } = L.sortedItems(list.id);
+    const total = pending.length + doneItems.length;
+    const allChecked = list.checkable && total > 0 && doneItems.length === total;
+
+    // U-6: search filter
+    const q = (L.search || "").toLowerCase().trim();
+    const filterFn = (it) => !q || it.text.toLowerCase().includes(q);
+    const pendingShown = pending.filter(filterFn);
+    const doneShown    = doneItems.filter(filterFn);
+
+    const showSearch = total >= 6;     // show bar only when worth it
+
+    const renderItem = (it, isDone, idx, total) => {
+      const editing = L.editingItemId === it.id;
+      if (editing) {
+        return `<div class="list-item editing">
+          <input class="list-item-edit-input" id="list-edit-${it.id}" type="text" value="${esc(it.text)}"
+            onblur="if(this.value.trim()&&this.value.trim()!==${JSON.stringify(it.text).replace(/"/g,'&quot;')})Lists.updateItem('${list.id}','${it.id}',this.value);Lists.editingItemId=null;renderListsOnly()"
+            onkeydown="if(event.key==='Enter'){this.blur()}else if(event.key==='Escape'){Lists.editingItemId=null;renderListsOnly()}">
+        </div>`;
+      }
+      const checkBtn = list.checkable
+        ? `<button class="check-btn ${isDone?'checked':''}" onclick="Lists.toggleItem('${list.id}','${it.id}',${isDone})">${isDone?'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>':''}</button>`
+        : '<span class="list-bullet">•</span>';
+      // U-2 reorder buttons (only on pending in unfiltered view)
+      const reorderBtns = !isDone && !q && total > 1 ? `
+        <button class="icon-btn move ${idx===0?'disabled':''}" ${idx===0?'disabled':''} onclick="Lists.moveItem('${list.id}','${it.id}','up')" title="Su">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+        </button>
+        <button class="icon-btn move ${idx===total-1?'disabled':''}" ${idx===total-1?'disabled':''} onclick="Lists.moveItem('${list.id}','${it.id}','down')" title="Giù">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>` : "";
+      return `<div class="list-item ${isDone?'done':''}" style="border-left-color:${cat.color}">
+        ${checkBtn}
+        <span class="list-item-text ${isDone?'done-text':''}" onclick="Lists.editingItemId='${it.id}';renderListsOnly()">${esc(it.text)}</span>
+        ${reorderBtns}
+        <button class="icon-btn dup" onclick="Lists.duplicateItem('${list.id}','${it.id}')" title="Duplica">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/></svg>
+        </button>
+        <button class="icon-btn del" onclick="Lists.deleteItem('${list.id}','${it.id}')" title="Elimina">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>`;
+    };
 
     return `<div class="cal-overlay" onclick="if(event.target===this){Lists.close();render()}">
-      <div class="cal-panel">
+      <div class="cal-panel" style="--list-cat-color:${cat.color}">
         <div class="cal-header">
-          <button class="lists-back" onclick="Lists.back();renderListsOnly()">‹ Liste</button>
+          <button class="lists-back" onclick="Lists.back();Lists.search='';Lists.editingItemId=null;renderListsOnly()">‹ Liste</button>
           <button class="cal-close" onclick="Lists.close();render()">✕</button>
         </div>
         <div class="lists-title-row">
           <div class="lists-title">${list.emoji} ${esc(list.name)}</div>
-          <div class="lists-title-meta">${activeCount} ${activeCount===1?"voce":"voci"}</div>
+          <div class="lists-title-meta">
+            ${list.checkable && total > 0 ? `${pending.length}/${total} da fare` : `${total} ${total===1?"voce":"voci"}`}
+          </div>
         </div>
+
+        ${list.checkable && total > 0 ? `<div class="list-progress">
+          <div class="list-progress-bar" style="width:${total > 0 ? Math.round(doneItems.length/total*100) : 0}%; background:${cat.color}"></div>
+        </div>` : ""}
 
         <div class="lists-actions-row">
-          <button class="lists-action-btn" onclick="Lists.readAloud('${list.id}')" title="Leggi ad alta voce">🔊 Leggi</button>
-          <button class="lists-action-btn" onclick="const n=prompt('Nuovo nome:',${JSON.stringify(list.name).replace(/"/g,'&quot;')}); if(n&&n.trim())Lists.renameList('${list.id}',n.trim())" title="Rinomina">✏️</button>
-          <button class="lists-action-btn" onclick="Lists.toggleCheckable('${list.id}',${list.checkable})" title="Cambia modo">
-            ${list.checkable ? "☑️ Spuntabile" : "📌 Sempre"}
+          <button class="lists-action-btn" onclick="Lists.editListInteractive('${list.id}')" title="Modifica">✏️</button>
+          <button class="lists-action-btn" onclick="Lists.share('${list.id}')" title="Condividi">📤</button>
+          <button class="lists-action-btn" onclick="Lists.readAloud('${list.id}')" title="Leggi">🔊</button>
+          <button class="lists-action-btn" onclick="Lists.toggleCheckable('${list.id}',${list.checkable})" title="${list.checkable?'Modalità nota':'Modalità to-do'}">
+            ${list.checkable ? "☑️" : "📌"}
           </button>
-          <button class="lists-action-btn danger" onclick="Lists.deleteList('${list.id}')" title="Elimina lista">🗑</button>
+          ${list.checkable && total > 0 ? `<button class="lists-action-btn" onclick="Lists.toggleAll('${list.id}',${allChecked})" title="${allChecked?'Riapri tutte':'Completa tutte'}">${allChecked ? "↺" : "✅"}</button>` : ""}
+          ${list.checkable && doneItems.length > 0 ? `<button class="lists-action-btn" onclick="Lists.clearCompleted('${list.id}')" title="Pulisci completate">🧹</button>` : ""}
+          ${total > 0 ? `<button class="lists-action-btn" onclick="Lists.clearAllItems('${list.id}')" title="Svuota lista">🗑️</button>` : ""}
+          <button class="lists-action-btn danger" onclick="Lists.deleteList('${list.id}')" title="Elimina lista">❌</button>
         </div>
 
-        <form class="lists-add-row" onsubmit="event.preventDefault();const i=document.getElementById('listAddInput');if(i.value.trim()){Lists.addItem('${list.id}',i.value);i.value='';}">
-          <input id="listAddInput" class="lists-add-input" type="text" placeholder="Aggiungi voce..." autocomplete="off">
-          <button type="submit" class="lists-add-btn">+</button>
-        </form>
+        ${showSearch ? `<input class="list-search" type="search" placeholder="🔍 Cerca nella lista..." value="${esc(L.search)}"
+          oninput="Lists.search=this.value;renderListsOnly()">` : ""}
+
+        <div class="lists-add-row">
+          <input id="listAddInput" class="lists-add-input" type="text" placeholder="Aggiungi voce..." autocomplete="off"
+            onkeydown="if(event.key==='Enter'){const v=this.value.trim();if(v){Lists.addItem('${list.id}',v);this.value='';this.focus();}}">
+          <button class="lists-add-btn" onclick="const i=document.getElementById('listAddInput');const v=i.value.trim();if(v){Lists.addItem('${list.id}',v);i.value='';i.focus();}">+</button>
+        </div>
+
+        ${L.undoItem && L.undoItem.listId === list.id ? `<div class="list-undo-banner">
+          Voce eliminata: <em>${esc(L.undoItem.item.text)}</em>
+          <button class="list-undo-btn" onclick="Lists.undoDeleteItem()">Annulla</button>
+        </div>` : ""}
 
         <div class="lists-items">
-          ${pendingItems.length === 0 && doneItems.length === 0 ? `<div class="cal-empty-msg">Lista vuota. Aggiungi qualcosa!</div>` : ""}
-          ${pendingItems.map(it => `<div class="list-item ${it.done?'done':''}">
-            ${list.checkable ? `<button class="check-btn ${it.done?'checked':''}" onclick="Lists.toggleItem('${list.id}','${it.id}',${it.done})">${it.done?'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>':''}</button>` : '<span class="list-bullet">•</span>'}
-            <span class="list-item-text">${esc(it.text)}</span>
-            <button class="icon-btn del" onclick="Lists.deleteItem('${list.id}','${it.id}')">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>`).join("")}
-          ${doneItems.length > 0 ? `<div class="lists-done-divider">Completate</div>` : ""}
-          ${doneItems.map(it => `<div class="list-item done">
-            <button class="check-btn checked" onclick="Lists.toggleItem('${list.id}','${it.id}',${it.done})">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            </button>
-            <span class="list-item-text done-text">${esc(it.text)}</span>
-            <button class="icon-btn del" onclick="Lists.deleteItem('${list.id}','${it.id}')">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>`).join("")}
+          ${pendingShown.length === 0 && doneShown.length === 0 ? `<div class="cal-empty-msg">${q ? "Nessuna voce trovata" : "Lista vuota. Aggiungi qualcosa!"}</div>` : ""}
+          ${pendingShown.map((it, i) => renderItem(it, false, i, pendingShown.length)).join("")}
+          ${doneShown.length > 0 ? `<div class="lists-done-divider">Completate · ${doneShown.length}</div>` : ""}
+          ${doneShown.map(it => renderItem(it, true, 0, 1)).join("")}
         </div>
       </div>
     </div>`;
@@ -6321,7 +7136,7 @@ function renderLists() {
         <button class="cal-close" onclick="Lists.close();render()">✕</button>
       </div>
 
-      <button class="cal-add-btn" onclick="const n=prompt('Nome della lista:'); if(n&&n.trim()){const c=confirm('Le voci si possono spuntare come fatte?');Lists.createList(n.trim(),c).then(id=>{Lists.openList(id);render()})}">
+      <button class="cal-add-btn" onclick="Lists.createListInteractive()">
         + Nuova lista
       </button>
 
@@ -6329,12 +7144,17 @@ function renderLists() {
         ${L.lists.length === 0 ? `<div class="cal-empty-msg" style="margin-top:16px">Non hai ancora liste.<br>Creane una o dì: "crea lista film"</div>` : ""}
         ${L.lists.map(list => {
           const items = L.items[list.id] || [];
-          const activeCount = list.checkable ? items.filter(i=>!i.done).length : items.length;
-          return `<button class="list-card" onclick="Lists.openList('${list.id}');renderListsOnly()">
+          const total = items.length;
+          const doneCount = list.checkable ? items.filter(i=>i.done).length : 0;
+          const activeCount = list.checkable ? total - doneCount : total;
+          const cat = LIST_CAT_BY_ID[list.category] || LIST_CAT_BY_ID.general;
+          const progress = list.checkable && total > 0 ? Math.round(doneCount/total*100) : 0;
+          return `<button class="list-card" onclick="Lists.openList('${list.id}');renderListsOnly()" style="--list-cat-color:${cat.color}">
             <div class="list-card-emoji">${list.emoji}</div>
             <div class="list-card-body">
               <div class="list-card-name">${esc(list.name)}</div>
               <div class="list-card-meta">${activeCount} ${activeCount===1?"voce":"voci"}${list.checkable?" · ☑":""}</div>
+              ${list.checkable && total > 0 ? `<div class="list-card-progress"><div class="list-card-progress-bar" style="width:${progress}%; background:${cat.color}"></div></div>` : ""}
             </div>
           </button>`;
         }).join("")}
@@ -6376,8 +7196,13 @@ function renderHelp() {
         { say: '"Crea lista della spesa"', does: "Nuova lista" },
         { say: '"Aggiungi pane alla spesa"', does: "Aggiunge voce" },
         { say: '"Metti latte nella lista spesa"', does: "Aggiunge voce" },
+        { say: '"Spunta pane dalla spesa"', does: "Segna fatto" },
+        { say: '"Modifica pane in pane integrale nella spesa"', does: "Modifica voce" },
         { say: '"Mostra la spesa"', does: "Apre la lista" },
         { say: '"Cosa c\'è nella lista film"', does: "Mostra contenuto" },
+        { say: '"Quante voci ho nella spesa"', does: "Conta voci" },
+        { say: '"Condividi lista spesa"', does: "Esporta/condividi" },
+        { say: '"Svuota lista spesa"', does: "Cancella voci" },
         { say: '"Cancella lista vecchia"', does: "Elimina la lista" },
         { say: '"Nota: idea per progetto"', does: "Aggiunge a Note" },
       ],
