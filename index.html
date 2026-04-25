@@ -1523,13 +1523,46 @@ const Account = {
     this.email = user.email || null;
   },
 
+  // True when the app is running as installed PWA (standalone display mode)
+  // or in any context where popup-based auth is unreliable.
+  _shouldUseRedirect() {
+    try {
+      // Installed PWA on iOS
+      if (window.navigator.standalone === true) return true;
+      // Installed PWA on Android/desktop
+      if (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) return true;
+      // Mobile browsers in general handle redirect more reliably
+      const ua = navigator.userAgent || "";
+      if (/iPhone|iPad|iPod|Android/i.test(ua)) return true;
+      return false;
+    } catch(e) { return false; }
+  },
+
   async linkGoogle() {
     // Link the current anonymous account with Google so data migrates.
     // If the Google account already exists (user logged in previously on
     // another device) we must sign into THAT account instead of linking.
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+    const useRedirect = this._shouldUseRedirect();
+
     try {
-      const provider = new firebase.auth.GoogleAuthProvider();
       const currentUser = auth.currentUser;
+
+      if (useRedirect) {
+        // Redirect-based flow: store intent so we know how to handle the result on return
+        try { sessionStorage.setItem("teto_auth_pending", currentUser?.isAnonymous ? "link" : "signin"); } catch(e) {}
+        showBubble("Reindirizzo a Google~ ☁️");
+        if (currentUser && currentUser.isAnonymous) {
+          await currentUser.linkWithRedirect(provider);
+        } else {
+          await auth.signInWithRedirect(provider);
+        }
+        // Page will navigate away; nothing else to do here.
+        return true;
+      }
+
+      // Popup flow (desktop browser only)
       if (currentUser && currentUser.isAnonymous) {
         try {
           const result = await currentUser.linkWithPopup(provider);
@@ -1537,15 +1570,11 @@ const Account = {
           showBubble("Account collegato! Le tue liste ora ti seguono ovunque~ 🌍");
           return true;
         } catch (err) {
-          // credential-already-in-use → the Google account exists already.
-          // Sign into it (losing the anonymous data on THIS device, but the
-          // other device's data will appear, which is what the user wants).
           if (err.code === "auth/credential-already-in-use" || err.code === "auth/email-already-in-use") {
             const credential = err.credential;
             const result = await auth.signInWithCredential(credential);
             this.update(result.user);
             state.uid = result.user.uid;
-            // Reattach all listeners to the new uid
             listenToTasks();
             Lists.resubscribe();
             Calendar.resubscribe();
@@ -1555,7 +1584,6 @@ const Account = {
           throw err;
         }
       } else {
-        // Not anonymous → just sign in normally
         const result = await auth.signInWithPopup(provider);
         this.update(result.user);
         state.uid = result.user.uid;
@@ -1567,15 +1595,59 @@ const Account = {
       }
     } catch (err) {
       console.error("Google sign-in failed:", err);
-      if (err.code === "auth/popup-blocked") {
-        showBubble("Il browser ha bloccato il popup — consenti i popup e riprova");
-      } else if (err.code === "auth/popup-closed-by-user") {
-        // User cancelled — silent
-      } else {
-        showBubble("Accesso non riuscito 😢");
-      }
+      this._reportAuthError(err);
       return false;
     }
+  },
+
+  _reportAuthError(err) {
+    const code = err?.code || "unknown";
+    const map = {
+      "auth/popup-blocked":          "Il browser ha bloccato il popup — consenti i popup e riprova, oppure installa l'app come PWA",
+      "auth/popup-closed-by-user":   null,  // silent — user cancelled
+      "auth/cancelled-popup-request": null,
+      "auth/unauthorized-domain":    "Dominio non autorizzato. In Firebase Console → Authentication → Settings → Authorized domains, aggiungi: " + location.hostname,
+      "auth/operation-not-allowed":  "Google sign-in non attivo. In Firebase Console → Authentication → Sign-in method, abilita Google",
+      "auth/network-request-failed": "Problema di rete — controlla la connessione",
+      "auth/internal-error":         "Errore interno Firebase. Riprova fra un momento",
+      "auth/configuration-not-found": "Configurazione Firebase mancante. Verifica FIREBASE_CONFIG",
+    };
+    const msg = map[code];
+    if (msg === null) return;   // silent (user cancelled)
+    showBubble(msg || `Accesso non riuscito (${code}) 😢`);
+  },
+
+  // Called once at boot to finish a redirect-based flow.
+  async handleRedirectResult() {
+    try {
+      const result = await auth.getRedirectResult();
+      if (result && result.user) {
+        // Successfully signed in / linked
+        this.update(result.user);
+        state.uid = result.user.uid;
+        try { sessionStorage.removeItem("teto_auth_pending"); } catch(e) {}
+        // Listeners will be re-attached by onAuthStateChanged after this runs
+        showBubble("Accesso riuscito~ ☁️");
+        return true;
+      }
+    } catch (err) {
+      console.error("Redirect result failed:", err);
+      // credential-already-in-use → Google account exists already, sign into it
+      if ((err.code === "auth/credential-already-in-use" || err.code === "auth/email-already-in-use") && err.credential) {
+        try {
+          const result = await auth.signInWithCredential(err.credential);
+          this.update(result.user);
+          state.uid = result.user.uid;
+          showBubble("Accesso riuscito! Carico i tuoi dati dal cloud~ ☁️");
+          return true;
+        } catch(e2) {
+          this._reportAuthError(e2);
+          return false;
+        }
+      }
+      this._reportAuthError(err);
+    }
+    return false;
   },
 
   async signOut() {
@@ -5973,6 +6045,10 @@ document.head.appendChild(mLink);
 // page refresh — without this, every reload creates a new anonymous user
 // and loses all local-only data.
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
+
+// Complete redirect-based Google sign-in if we just came back from one.
+// This must run before onAuthStateChanged fires for the result to be picked up.
+Account.handleRedirectResult();
 
 auth.onAuthStateChanged(user => {
   if (user) {
