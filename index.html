@@ -80,7 +80,7 @@ body::before {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400"><g font-family="sans-serif" opacity="0.055"><text x="40" y="60" font-size="32" fill="%23c22a4a">♪</text><text x="320" y="90" font-size="26" fill="%23e85c7f">♫</text><text x="180" y="140" font-size="22" fill="%23c22a4a">✨</text><text x="80" y="220" font-size="28" fill="%23e85c7f">🍞</text><text x="280" y="260" font-size="30" fill="%23c22a4a">♪</text><text x="150" y="320" font-size="24" fill="%23e85c7f">♡</text><text x="360" y="360" font-size="26" fill="%23c22a4a">♫</text><text x="30" y="350" font-size="22" fill="%23e85c7f">✨</text><text x="210" y="50" font-size="20" fill="%23c22a4a">♡</text></g></svg>");
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22400%22 viewBox=%220 0 400 400%22><g opacity=%220.06%22><circle cx=%2240%22 cy=%2260%22 r=%2214%22 fill=%22%23c22a4a%22/><circle cx=%22320%22 cy=%2290%22 r=%2212%22 fill=%22%23e85c7f%22/><circle cx=%22180%22 cy=%22140%22 r=%2210%22 fill=%22%23c22a4a%22/><circle cx=%2280%22 cy=%22220%22 r=%2213%22 fill=%22%23e85c7f%22/><circle cx=%22280%22 cy=%22260%22 r=%2214%22 fill=%22%23c22a4a%22/><circle cx=%22150%22 cy=%22320%22 r=%2211%22 fill=%22%23e85c7f%22/><circle cx=%22360%22 cy=%22360%22 r=%2212%22 fill=%22%23c22a4a%22/><circle cx=%2230%22 cy=%22350%22 r=%2210%22 fill=%22%23e85c7f%22/><circle cx=%22210%22 cy=%2250%22 r=%229%22 fill=%22%23c22a4a%22/></g></svg>');
   background-repeat: repeat;
   background-size: 400px 400px;
   z-index: 0;
@@ -3808,6 +3808,53 @@ function normalizeVoiceInput(raw) {
   return s;
 }
 
+function isAffirmative(text) {
+  const t = String(text || "").trim().toLowerCase();
+  return /^(?:s[iì]|si|certo|ok|va\s+bene|procedi|conferma|yes|yep|vai|fallo|esatto)\b/.test(t);
+}
+
+function isNegative(text) {
+  const t = String(text || "").trim().toLowerCase();
+  return /^(?:no|annulla|lascia\s+stare|stop|non\s+farlo|negativo)\b/.test(t);
+}
+
+function normalizeListRef(name) {
+  const base = stripArticles(String(name || "")).trim();
+  if (!base) return base;
+  const key = base.toLowerCase();
+  return state.commandAliases[key] || base;
+}
+
+function saveAlias(alias, canonical) {
+  if (!alias || !canonical) return;
+  state.commandAliases[String(alias).toLowerCase().trim()] = String(canonical).trim();
+  localStorage.setItem("teto-aliases", JSON.stringify(state.commandAliases));
+}
+
+function formatAssistantReply(reply) {
+  if (!reply) return reply;
+  if (state.responseStyle === "detailed") return reply;
+  if (state.responseStyle === "short") {
+    return reply
+      .replace(/\s*♪/g, "")
+      .replace(/\s+/g, " ")
+      .replace(/^(Ok!|Perfetto!|Fatto!|Ricevuto!)/i, "Ok.")
+      .slice(0, 120)
+      .trim();
+  }
+  return reply;
+}
+
+function splitCompositeCommands(rawText) {
+  const src = String(rawText || "").trim();
+  if (!src) return [];
+  // Conservative split: only explicit sequencing words.
+  return src
+    .split(/\s+(?:e\s+poi|poi|quindi|dopodich[eé])\s+/i)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
 /**
  * Detect user intent from a spoken/typed phrase.
  * Returns an intent object that executeIntent can handle.
@@ -3846,6 +3893,30 @@ function detectIntent(rawText) {
   if (/^(?:aiuto|help|cosa\s+(?:puoi|sai)\s+fare|comandi|che\s+comandi|come\s+funzioni|istruzioni|guida)\b/i.test(lower) ||
       /^(?:non\s+so\s+(?:cosa|che)\s+dire|cosa\s+ti\s+posso\s+chiedere)\b/i.test(lower)) {
     return { kind: "help" };
+  }
+
+  // ─── RESPONSE STYLE ─────────────────────────────────────
+  if (/^(?:rispondi|parla|modalit[aà]\s+risposte?)\s+(?:in\s+modo\s+)?(?:breve|corto|sintetico)\b/i.test(lower)) {
+    return { kind: "response_style", style: "short" };
+  }
+  if (/^(?:rispondi|parla|modalit[aà]\s+risposte?)\s+(?:in\s+modo\s+)?(?:normale|standard)\b/i.test(lower)) {
+    return { kind: "response_style", style: "normal" };
+  }
+  if (/^(?:rispondi|parla|modalit[aà]\s+risposte?)\s+(?:in\s+modo\s+)?(?:dettagliato|lungo|esteso)\b/i.test(lower)) {
+    return { kind: "response_style", style: "detailed" };
+  }
+
+  // ─── NATURAL CORRECTION OF LAST ACTION ──────────────────
+  if ((m = lower.match(/^(?:non\s+quello[,.\s]*intendevo|no[,.\s]*intendevo|intendevo)\s+(.+)/i))) {
+    return { kind: "correct_last", text: m[1].trim() };
+  }
+
+  // ─── LIST ALIAS ─────────────────────────────────────────
+  if ((m = lower.match(/^(?:chiama|imposta|usa|considera)\s+(?:la\s+lista\s+)?(.+?)\s+(?:come|=)\s+(.+)/i))) {
+    return { kind: "alias_set", canonical: stripArticles(m[1]), alias: stripArticles(m[2]) };
+  }
+  if ((m = lower.match(/^(?:rimuovi|elimina|cancella)\s+(?:alias)\s+(.+)/i))) {
+    return { kind: "alias_remove", alias: stripArticles(m[1]) };
   }
 
   // ─── BRIEFING (#4) ──────────────────────────────────────
@@ -4004,14 +4075,14 @@ function detectIntent(rawText) {
   }
   // "aggiungi X a/alla/al Y" (no "lista" word) — route to list_add if Y matches a known list
   if ((m = lower.match(/^(?:aggiung(?:i|imi|ere|ermi)|mett(?:i|imi|ere|ermi)|inseris(?:ci|cere|cimi)|scriv(?:i|ere|imi|ermi))\s+(.+?)\s+(?:alla|nella|sulla|al|nel|sul|a|in|su|ai|agli|alle|nei|negli|nelle|sui|sugli|sulle)\s+(.+)/i))) {
-    const candidate = stripArticles(m[2]);
+    const candidate = normalizeListRef(stripArticles(m[2]));
     if (Lists.findByName(candidate)) {
       return { kind: "list_add", item: m[1].trim(), listName: candidate };
     }
   }
   // "aggiungi alla lista Y: X" or "aggiungi alla spesa X"
   if ((m = lower.match(/^(?:aggiung(?:i|imi|ere|ermi)|mett(?:i|imi|ere|ermi))\s+(?:alla|nella|al|nel|in|a)\s+(?:lista\s+)?(\S+(?:\s+\S+)?)\s*[:,]?\s+(.+)/i))) {
-    const candidate = stripArticles(m[1]);
+    const candidate = normalizeListRef(stripArticles(m[1]));
     if (Lists.findByName(candidate)) {
       return { kind: "list_add", listName: candidate, item: m[2].trim() };
     }
@@ -4027,7 +4098,7 @@ function detectIntent(rawText) {
   }
   // "apri la spesa" / "mostra la spesa" — only if it matches a known list
   if ((m = lower.match(/^(?:mostra(?:mi)?|apri(?:mi)?|leggi(?:mi)?|fammi\s+vedere|dimmi)\s+(.+)/i))) {
-    const candidate = stripArticles(m[1]);
+    const candidate = normalizeListRef(stripArticles(m[1]));
     if (Lists.findByName(candidate)) {
       return { kind: "list_read", name: candidate };
     }
@@ -4316,11 +4387,192 @@ function parseEventIntent(text) {
   return { kind: "event", title: text, timestamp: null };
 }
 
+/* ─── Intent quality + command pipeline ─── */
+function estimateIntentConfidence(intent, normalizedText) {
+  if (!intent || !intent.kind) return 0.2;
+  const txt = String(normalizedText || "").trim();
+  if (!txt) return 0.2;
+
+  const baseByKind = {
+    undo: 0.98, help: 0.97,
+    event_delete: 0.9, event_move: 0.88, event_query: 0.9,
+    list_create: 0.9, list_add: 0.9, list_read: 0.9, list_check: 0.87, list_edit: 0.87, list_clear: 0.9, list_count: 0.9, list_share: 0.87,
+    weather: 0.86, timer: 0.92, math: 0.9, convert: 0.9, holiday_when: 0.88,
+    focus_enter: 0.9, focus_exit: 0.9, briefing: 0.88, plan_day: 0.88,
+    task: 0.82, event: 0.78, chat: 0.6, fallback: 0.45,
+  };
+  let score = baseByKind[intent.kind] ?? 0.75;
+
+  if (intent.kind === "task") {
+    const taskText = String(intent.text || "").trim();
+    if (!taskText) score -= 0.45;
+    else if (taskText.length < 3) score -= 0.2;
+    else if (taskText.length < 6) score -= 0.08;
+  }
+  if (intent.kind === "event") {
+    if (!intent.title || String(intent.title).trim().length < 3) score -= 0.25;
+    if (!intent.timestamp) score -= 0.15;
+  }
+  if (intent.kind === "chat" && txt.length < 2) score -= 0.2;
+
+  if (/\b(ricordami|crea|aggiungi|sposta|cancella|timer|meteo|lista|evento)\b/i.test(txt)) score += 0.05;
+  if (/\b(domani|oggi|stasera|alle\s+\d{1,2}|tra|fra)\b/i.test(txt)) score += 0.03;
+
+  return Math.max(0.2, Math.min(0.99, Number(score.toFixed(2))));
+}
+
+function needsClarification(intent, normalizedText) {
+  if (!intent) return "Non ho capito bene. Puoi ripetere?";
+  const txt = String(normalizedText || "").trim();
+
+  if (intent.kind === "fallback" || txt.length <= 1) {
+    return "Non ho capito bene. Prova con: \"ricordami di...\" oppure \"crea lista...\"";
+  }
+  if (intent.kind === "task") {
+    const taskText = String(intent.text || "").trim();
+    if (!taskText || /^(di|da|a|per|il|la|un|una)$/i.test(taskText)) {
+      return "Certo! Che cosa devo aggiungere esattamente?";
+    }
+  }
+  if (intent.kind === "event" && (!intent.title || String(intent.title).trim().length < 3)) {
+    return "Va bene, che titolo vuoi dare all'evento?";
+  }
+  return null;
+}
+
+function recordIntentStats(meta, wasClarification, wasFallback) {
+  state.intentStats.total += 1;
+  if (wasClarification) state.intentStats.clarified += 1;
+  if (wasFallback) state.intentStats.fallback += 1;
+  const k = meta.kind || "unknown";
+  state.intentStats.byKind[k] = (state.intentStats.byKind[k] || 0) + 1;
+  const n = state.intentStats.total;
+  const prev = state.intentStats.avgLatencyMs || 0;
+  state.intentStats.avgLatencyMs = Math.round(((prev * (n - 1)) + meta.latencyMs) / n);
+}
+
+async function processUserCommand(rawText, source = "text") {
+  const startedAt = performance.now();
+  const original = String(rawText || "").trim();
+  if (!original) return { ok: true, empty: true };
+  state.lastUtterance = original;
+
+  // 1) Pending destructive confirmation (yes/no).
+  if (state.pendingDangerAction) {
+    if (isAffirmative(original)) {
+      const pending = state.pendingDangerAction;
+      state.pendingDangerAction = null;
+      const intent = { kind: pending.kind, ...(pending.payload || {}) };
+      const reply = await executeIntent(intent);
+      if (reply) showBubble(formatAssistantReply(reply));
+      return { ok: true, confirmed: true, intent, reply };
+    }
+    if (isNegative(original)) {
+      state.pendingDangerAction = null;
+      showBubble("Perfetto, annullato.");
+      return { ok: true, cancelled: true };
+    }
+    showBubble("Confermi? Di' \"sì\" per procedere o \"no\" per annullare.");
+    return { ok: true, waitingConfirmation: true };
+  }
+
+  // 2) Pending clarification slot filling.
+  if (state.pendingClarification && !isNegative(original)) {
+    const c = state.pendingClarification;
+    state.pendingClarification = null;
+    if (c.slot === "task_text") {
+      const dt = parseDateTime(original);
+      const intent = { kind: "task", text: (dt?.cleaned || original).trim(), reminderAt: dt?.timestamp || null };
+      const reply = await executeIntent(intent);
+      if (reply) showBubble(formatAssistantReply(reply));
+      return { ok: true, fromClarification: true, intent, reply };
+    }
+    if (c.slot === "event_title") {
+      const dt = parseDateTime(original);
+      const intent = { kind: "event", title: (dt?.cleaned || original).trim(), timestamp: dt?.timestamp || null };
+      const reply = await executeIntent(intent);
+      if (reply) showBubble(formatAssistantReply(reply));
+      return { ok: true, fromClarification: true, intent, reply };
+    }
+  }
+
+  // 3) Composite commands: "X e poi Y".
+  const parts = splitCompositeCommands(original);
+  if (parts.length > 1) {
+    let done = 0;
+    for (const p of parts) {
+      const r = await processUserCommand(p, source);
+      if (r?.ok) done++;
+    }
+    if (done > 1) showBubble(`Fatto: ho eseguito ${done} azioni.`);
+    return { ok: true, composite: true, done };
+  }
+
+  // 4) Immediate visual ack for perceived speed.
+  showBubble("Capito, ci penso io...", { silent: true });
+
+  const normalized = normalizeVoiceInput(original);
+  const intent = detectIntent(original);
+  const confidence = estimateIntentConfidence(intent, normalized);
+  const clarification = needsClarification(intent, normalized);
+  const meta = { kind: intent?.kind || "unknown", confidence, source, latencyMs: 0, at: Date.now() };
+
+  // Keep slot open when we need a focused follow-up.
+  if (clarification && confidence < 0.7) {
+    if (intent?.kind === "clarify" || intent?.kind === "task") {
+      state.pendingClarification = { slot: "task_text", hint: original };
+    }
+    meta.latencyMs = Math.round(performance.now() - startedAt);
+    state.lastIntentMeta = meta;
+    recordIntentStats(meta, true, intent?.kind === "fallback");
+    showBubble(clarification);
+    return { ok: true, clarified: true, intent, meta };
+  }
+
+  const reply = await executeIntent(intent);
+  meta.latencyMs = Math.round(performance.now() - startedAt);
+  state.lastIntentMeta = meta;
+  recordIntentStats(meta, false, intent?.kind === "fallback");
+  if (reply) showBubble(formatAssistantReply(reply));
+  return { ok: true, clarified: false, intent, meta, reply };
+}
+
 /**
  * Execute a parsed intent. Returns a message for Teto to say back.
  */
 async function executeIntent(intent) {
   switch (intent.kind) {
+    case "response_style": {
+      state.responseStyle = intent.style || "normal";
+      localStorage.setItem("teto-response-style", state.responseStyle);
+      if (state.responseStyle === "short") return "Ok, da ora rispondo più breve.";
+      if (state.responseStyle === "detailed") return "Perfetto, risposte più dettagliate attivate.";
+      return "Va bene, torno a risposte standard.";
+    }
+    case "alias_set": {
+      const canonical = normalizeListRef(intent.canonical);
+      if (!canonical) return "Dimmi il nome della lista da usare come riferimento.";
+      saveAlias(intent.alias, canonical);
+      return `Perfetto: da ora "${intent.alias}" significa lista "${canonical}"`;
+    }
+    case "alias_remove": {
+      const key = String(intent.alias || "").toLowerCase().trim();
+      if (!key || !state.commandAliases[key]) return `Non trovo l'alias "${intent.alias}"`;
+      delete state.commandAliases[key];
+      localStorage.setItem("teto-aliases", JSON.stringify(state.commandAliases));
+      return `Alias "${intent.alias}" rimosso`;
+    }
+    case "correct_last": {
+      if (!state.lastAction) return "Non ho un'azione recente da correggere.";
+      if (state.lastAction.kind === "task_create" && state.lastAction.id) {
+        const newText = String(intent.text || "").trim();
+        if (!newText) return "Ok, dimmi il testo corretto.";
+        await updateTaskInDb(state.lastAction.id, { text: newText });
+        state.lastAction = { ...state.lastAction, text: newText };
+        return `Corretto! Ora il task è "${newText}"`;
+      }
+      return "Posso correggere solo l'ultima creazione task, per ora.";
+    }
     case "undo": {
       if (state.undoTask) {
         undoDelete();
@@ -4335,6 +4587,7 @@ async function executeIntent(intent) {
         reminderAt: intent.reminderAt || null,
       };
       await addTaskToDb(task);
+      state.lastAction = { kind: "task_create", id: task.id, text: task.text };
       if (intent.reminderAt) {
         const when = new Date(intent.reminderAt).toLocaleString("it-IT", { weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" });
         return `Ok! Task aggiunto con promemoria per ${when}`;
@@ -4359,6 +4612,7 @@ async function executeIntent(intent) {
         reminderOffset: null,
         ts: Date.now(),
       });
+      state.lastAction = { kind: "event_create", title: intent.title, timestamp: intent.timestamp };
       const when = d.toLocaleString("it-IT", { weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" });
       return `Evento salvato! ${intent.title} — ${when}`;
     }
@@ -4389,10 +4643,12 @@ async function executeIntent(intent) {
       await db.collection("users").doc(state.uid).collection("lists").doc(id).set({
         name: intent.name, emoji, checkable: false, ts: Date.now(),
       });
+      state.lastAction = { kind: "list_create", id, name: intent.name };
       return `Lista "${intent.name}" creata ${emoji}`;
     }
     case "list_add": {
       // Find list by name (case-insensitive)
+      intent.listName = normalizeListRef(intent.listName);
       const list = Lists.findByName(intent.listName);
       if (!list) {
         // Auto-create
@@ -4402,9 +4658,11 @@ async function executeIntent(intent) {
           name: intent.listName, emoji, checkable: false, ts: Date.now(),
         });
         await Lists.addItem(id, intent.item);
+        state.lastAction = { kind: "list_add", listId: id, item: intent.item, listName: intent.listName };
         return `Lista "${intent.listName}" creata e "${intent.item}" aggiunto!`;
       }
       await Lists.addItem(list.id, intent.item);
+      state.lastAction = { kind: "list_add", listId: list.id, item: intent.item, listName: list.name };
       return `"${intent.item}" aggiunto a ${list.emoji} ${list.name}`;
     }
     case "list_add_default": {
@@ -4421,6 +4679,7 @@ async function executeIntent(intent) {
       return `Nota aggiunta a 📝 Note!`;
     }
     case "list_read": {
+      intent.name = normalizeListRef(intent.name);
       const list = Lists.findByName(intent.name);
       if (!list) return `Non ho trovato la lista "${intent.name}"`;
       Lists.open(list.id);
@@ -4432,6 +4691,7 @@ async function executeIntent(intent) {
       return `${list.emoji} ${list.name}: ${items.length} voci. L'ho aperta per te`;
     }
     case "list_check": {
+      intent.listName = normalizeListRef(intent.listName);
       const list = Lists.findByName(intent.listName);
       if (!list) return `Non ho trovato la lista "${intent.listName}"`;
       if (!list.checkable) return `La lista ${list.name} non è spuntabile (è una nota). Cambia tipo dalle azioni della lista`;
@@ -4443,6 +4703,7 @@ async function executeIntent(intent) {
       return `Spuntato "${found.text}" da ${list.name} ✓`;
     }
     case "list_edit": {
+      intent.listName = normalizeListRef(intent.listName);
       const list = Lists.findByName(intent.listName);
       if (!list) return `Non ho trovato la lista "${intent.listName}"`;
       const arr = Lists.items[list.id] || [];
@@ -4453,6 +4714,7 @@ async function executeIntent(intent) {
       return `Modificato in ${list.name}: "${intent.newText}" ♪`;
     }
     case "list_clear": {
+      intent.name = normalizeListRef(intent.name);
       const list = Lists.findByName(intent.name);
       if (!list) return `Non ho trovato la lista "${intent.name}"`;
       const arr = Lists.items[list.id] || [];
@@ -4466,6 +4728,7 @@ async function executeIntent(intent) {
       return `Lista ${list.name} svuotata ✨`;
     }
     case "list_count": {
+      intent.name = normalizeListRef(intent.name);
       const list = Lists.findByName(intent.name);
       if (!list) return `Non ho trovato la lista "${intent.name}"`;
       const arr = Lists.items[list.id] || [];
@@ -4478,6 +4741,7 @@ async function executeIntent(intent) {
       return `Nella lista ${list.name} ci sono ${arr.length} ${arr.length===1?"voce":"voci"}`;
     }
     case "list_share": {
+      intent.name = normalizeListRef(intent.name);
       const list = Lists.findByName(intent.name);
       if (!list) return `Non ho trovato la lista "${intent.name}"`;
       Lists.share(list.id);
@@ -4627,6 +4891,10 @@ async function executeIntent(intent) {
       return `Fatto! "${match.text}" segnato come completato 🌟`;
     }
     case "delete_task": {
+      if (!intent.confirmed) {
+        state.pendingDangerAction = { kind: "delete_task", payload: { ...intent, confirmed: true } };
+        return `Sei sicur* di voler cancellare "${intent.query}"? Di' "sì" per confermare.`;
+      }
       const q = intent.query.toLowerCase();
       const match = state.tasks.find(t => t.text.toLowerCase().includes(q));
       if (!match) return `Non trovo nessun task che corrisponda a "${intent.query}"`;
@@ -4635,6 +4903,7 @@ async function executeIntent(intent) {
       clearTimeout(undoTimer);
       undoTimer = setTimeout(() => { state.undoTask = null; render(); }, 6000);
       render();
+      state.lastAction = { kind: "task_delete", id: match.id, text: match.text };
       return `Cancellato "${match.text}". Dì "annulla" o tocca il banner per recuperarlo`;
     }
     case "open": {
@@ -4658,14 +4927,19 @@ async function executeIntent(intent) {
       return "Oggi è " + d.toLocaleDateString("it-IT", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
     }
     case "list_delete": {
+      intent.name = normalizeListRef(intent.name);
+      if (!intent.confirmed) {
+        state.pendingDangerAction = { kind: "list_delete", payload: { ...intent, confirmed: true } };
+        return `Confermi eliminazione totale della lista "${intent.name}"? Di' "sì" per procedere.`;
+      }
       const list = Lists.findByName(intent.name);
       if (!list) return `Non ho trovato la lista "${intent.name}"`;
-      // Silent deletion via voice (no confirm prompt)
       try {
         const itemsSnap = await db.collection("users").doc(state.uid)
           .collection("lists").doc(list.id).collection("items").get();
         await Promise.all(itemsSnap.docs.map(d => d.ref.delete()));
         await db.collection("users").doc(state.uid).collection("lists").doc(list.id).delete();
+        state.lastAction = { kind: "list_delete", id: list.id, name: list.name };
         return `Lista "${list.name}" eliminata`;
       } catch (e) {
         console.error(e);
@@ -5674,6 +5948,20 @@ let state = {
   focusMode: false,               // lock-screen / focus mode (#7)
   briefingShownToday: null,       // date string of last briefing shown (#4)
   planSuggestion: null,           // smart-plan modal data (#1)
+  lastUtterance: "",              // last spoken/typed user phrase (for debugging/context)
+  lastIntentMeta: null,           // { kind, confidence, source, latencyMs, at }
+  lastAction: null,               // { kind, ... } last mutating action (for "non quello, intendevo...")
+  pendingClarification: null,     // { slot: "task_text"|"event_title", hint?: string }
+  pendingDangerAction: null,      // { kind, payload } waiting explicit yes/no
+  commandAliases: JSON.parse(localStorage.getItem("teto-aliases") || "{}"), // {alias: canonical}
+  responseStyle: localStorage.getItem("teto-response-style") || "normal",    // short|normal|detailed
+  intentStats: {                  // lightweight local metrics (#efficiency)
+    total: 0,
+    clarified: 0,
+    fallback: 0,
+    byKind: {},
+    avgLatencyMs: 0,
+  },
 };
 
 let undoTimer = null;
@@ -5987,11 +6275,8 @@ function toggleMic() {
     state.input = "";  // we'll execute directly
     render();
     haptic(10);
-    // Parse intent and execute — Teto "capisce"
     try {
-      const intent = detectIntent(transcript);
-      const reply = await executeIntent(intent);
-      if (reply) showBubble(reply);
+      await processUserCommand(transcript, "voice");
     } catch (err) {
       console.error("Intent execution error:", err);
       // Fallback: treat as plain task
@@ -6047,9 +6332,7 @@ async function addTask() {
   state.input = "";
   render();
   try {
-    const intent = detectIntent(text);
-    const reply = await executeIntent(intent);
-    if (reply) showBubble(reply);
+    await processUserCommand(text, "text");
     haptic(10);
   } catch (err) {
     console.error("Intent error:", err);
