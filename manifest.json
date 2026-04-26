@@ -1,21 +1,24 @@
 {
   "name": "TetoTask",
   "short_name": "TetoTask",
-  "start_url": ".",
+  "description": "Una semplice app per gestire liste e promemoria.",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#ff4271",
-  "description": "Una semplice app per gestire liste e promemoria.",
   "icons": [
     {
-      "src": "https://www.svgrepo.com/show/532797/bread.svg",
+      "src": "./icon-192.png",
       "sizes": "192x192",
-      "type": "image/svg+xml"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "https://www.svgrepo.com/show/532797/bread.svg",
+      "src": "./icon-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
