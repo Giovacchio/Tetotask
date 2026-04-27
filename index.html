@@ -6900,7 +6900,6 @@ function render() {
       </div>
 
       <div class="settings-section-title" style="margin-top:14px">🧠 Memoria di Teto</div>
-      <div class="settings-section-title" style="margin-top:14px">🤖 Gemini AI</div>
 <div class="settings-row">
   <div>
     <div class="settings-label">Gemini AI ${GeminiAgent.enabled?"✅ attivo":""}</div>
@@ -6942,7 +6941,7 @@ function render() {
         }
         ${Prefs.list().length > 0 ? `<button class="reminder-clear" style="width:100%;margin-top:8px" onclick="Modal.confirm('Cancellare tutti i ricordi?',{title:'Svuota memoria',danger:true,okLabel:'Svuota'}).then(ok=>{if(ok){Prefs.clear();render()}})">🗑️ Svuota memoria</button>` : ""}
       </div>` : ""}
-
+      <div class="settings-section-title" style="margin-top:14px">🤖 Gemini AI</div>
       <div class="settings-section-title" style="margin-top:14px">⚙️ Altro</div>
       <div class="settings-row">
         <div>
