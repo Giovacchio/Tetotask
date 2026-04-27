@@ -2924,7 +2924,159 @@ const Timers = {
     this.active = [];
   },
 };
+const GeminiAgent = {
+  enabled: localStorage.getItem("teto-gemini-enabled") === "1",
+  apiKey:  localStorage.getItem("teto-gemini-key") || "",
 
+  systemPrompt() {
+    return `Sei Teto, l'assistente di TetoTask - app italiana per task, eventi, liste e promemoria.
+Rispondi SOLO in JSON valido:
+{ "reply": "messaggio in italiano stile Teto (simpatica, ama il pane 🍞, usa ~ e ♪)", "actions": [] }
+
+AZIONI DISPONIBILI:
+{"type":"add_task","text":"...","category":"personale|lavoro|urgente","reminderAt":null}
+{"type":"complete_task","query":"testo parziale"}
+{"type":"delete_task","query":"testo parziale"}
+{"type":"open_calendar"}
+{"type":"close_calendar"}
+{"type":"open_lists"}
+{"type":"create_list","name":"...","emoji":"...","checkable":false}
+{"type":"add_list_item","listName":"...","item":"..."}
+{"type":"open_list","name":"..."}
+{"type":"open_settings"}
+{"type":"close_all"}
+{"type":"set_filter","filter":"all|personale|lavoro|urgente"}
+{"type":"show_help"}
+{"type":"focus_mode"}
+
+STATO ATTUALE:
+- Task attivi: ${state.tasks.filter(t=>!t.done).length}
+- Task completati: ${state.tasks.filter(t=>t.done).length}
+- Liste: ${Lists.lists.map(l=>l.name).join(", ")||"nessuna"}
+- Calendario aperto: ${Calendar.open_}
+- Liste aperte: ${Lists.open_}
+- Filtro: ${state.filter}
+Ultimi task:
+${state.tasks.slice(0,5).map(t=>`- ${t.done?"[✓]":"[ ]"} ${t.text}`).join("\n")}
+
+REGOLE:
+1. "reply" è SEMPRE presente e non vuoto
+2. Se l'utente vuole fare qualcosa sull'app → metti l'azione in "actions"
+3. Puoi combinare più azioni (es. crea lista + aggiungi voci)
+4. Solo JSON valido — nessun testo fuori`;
+  },
+
+  async process(userText) {
+    if (!this.apiKey) {
+      showBubble("Inserisci la tua API key Gemini nelle impostazioni 🔑");
+      return null;
+    }
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              role: "user",
+              parts: [{ text: this.systemPrompt() + "\n\nUtente: " + userText }]
+            }],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 1024,
+              responseMimeType: "application/json"
+            }
+          })
+        }
+      );
+      if (!res.ok) {
+        const e = await res.json();
+        throw new Error(e.error?.message || "Errore " + res.status);
+      }
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const clean = text.replace(/```json\n?|\n?```/g,"").trim();
+      return JSON.parse(clean);
+    } catch(e) {
+      console.error("Gemini:", e);
+      showBubble("Gemini dice: " + e.message + " — riprovo in locale 🍞");
+      return null;
+    }
+  },
+
+  async run(userText) {
+    showBubble("Gemini sta pensando~ ✨", { silent: true });
+    const result = await this.process(userText);
+    if (!result) return false;
+    if (result.reply) showBubble(result.reply);
+    if (result.actions?.length) {
+      for (const action of result.actions) {
+        await this.exec(action);
+        await new Promise(r => setTimeout(r, 150));
+      }
+    }
+    return true;
+  },
+
+  async exec(action) {
+    switch (action.type) {
+      case "add_task": {
+        await addTaskToDb({ id:genId(), text:action.text, category:action.category||state.cat,
+          note:"", done:false, ts:Date.now(), reminderAt:action.reminderAt||null });
+        haptic(12); break;
+      }
+      case "complete_task": {
+        const m = state.tasks.find(t=>!t.done&&t.text.toLowerCase().includes((action.query||"").toLowerCase()));
+        if (m) { await updateTaskInDb(m.id,{done:true}); haptic(20); } break;
+      }
+      case "delete_task": {
+        const m = state.tasks.find(t=>t.text.toLowerCase().includes((action.query||"").toLowerCase()));
+        if (m) { state.undoTask={...m}; await deleteTaskFromDb(m.id); haptic(15); } break;
+      }
+      case "open_calendar":   Calendar.open(); break;
+      case "close_calendar":  Calendar.close(); break;
+      case "open_lists":      Lists.open(); break;
+      case "create_list": {
+        const id = genId();
+        await db.collection("users").doc(state.uid).collection("lists").doc(id).set({
+          name:action.name, emoji:action.emoji||guessListEmoji(action.name),
+          checkable:!!action.checkable, ts:Date.now()
+        }); break;
+      }
+      case "add_list_item": {
+        const list = Lists.findByName(action.listName);
+        if (list) await Lists.addItem(list.id, action.item); break;
+      }
+      case "open_list": {
+        const list = Lists.findByName(action.name);
+        if (list) Lists.open(list.id); break;
+      }
+      case "open_settings":  state.showSettings=true; break;
+      case "close_all":
+        Calendar.close(); Lists.close();
+        state.showSettings=false; state.showHelp=false; break;
+      case "set_filter":     state.filter=action.filter||"all"; break;
+      case "show_help":      state.showHelp=true; break;
+      case "focus_mode":     Focus.enter(); Focus.startTicker(); break;
+    }
+    render();
+  },
+
+  toggle() {
+    this.enabled = !this.enabled;
+    localStorage.setItem("teto-gemini-enabled", this.enabled?"1":"0");
+    showBubble(this.enabled
+      ? "Gemini attivato! Capisco richieste complesse e navigo l'app per te~ ✨"
+      : "Torno alla modalità locale 🍞");
+    render();
+  },
+
+  setKey(key) {
+    this.apiKey = key.trim();
+    localStorage.setItem("teto-gemini-key", this.apiKey);
+  }
+};
 /* ─── Unit conversion (length, mass, volume, time) ────────────── */
 const UNITS = {
   // mass (base g)
@@ -4456,6 +4608,12 @@ async function processUserCommand(rawText, source = "text") {
   const original = String(rawText || "").trim();
   if (!original) return { ok: true, empty: true };
   state.lastUtterance = original;
+  // Route through Gemini if enabled
+if (GeminiAgent.enabled && GeminiAgent.apiKey) {
+  const ok = await GeminiAgent.run(original);
+  if (ok) return { ok: true, source: "gemini" };
+  // Gemini fallisce → continua con il parser locale
+}
 
   // 1) Pending destructive confirmation (yes/no).
   if (state.pendingDangerAction) {
@@ -6742,6 +6900,31 @@ function render() {
       </div>
 
       <div class="settings-section-title" style="margin-top:14px">🧠 Memoria di Teto</div>
+      <div class="settings-section-title" style="margin-top:14px">🤖 Gemini AI</div>
+<div class="settings-row">
+  <div>
+    <div class="settings-label">Gemini AI ${GeminiAgent.enabled?"✅ attivo":""}</div>
+    <div class="settings-hint">
+      Usa Google Gemini per capire richieste complesse e navigare l'app automaticamente
+      ${!GeminiAgent.apiKey ? "· ⚠️ API key mancante" : ""}
+    </div>
+  </div>
+  <div class="toggle ${GeminiAgent.enabled?'on':''}" onclick="GeminiAgent.toggle();render()"></div>
+</div>
+<div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;padding:10px 0">
+  <div class="settings-label">API Key Gemini</div>
+  <div style="display:flex;gap:8px">
+    <input type="password" class="text-input"
+      style="flex:1;min-height:38px;font-size:.85rem;border-radius:10px"
+      placeholder="AIzaSy..." value="${esc(GeminiAgent.apiKey)}"
+      oninput="GeminiAgent.setKey(this.value)">
+    <button class="reminder-clear primary"
+      onclick="window.open('https://aistudio.google.com/apikey','_blank')">Ottieni</button>
+  </div>
+  <div class="settings-hint">
+    Gratuita · 15 req/min · La chiave resta solo sul tuo dispositivo
+  </div>
+</div>
       <div class="settings-row">
         <div>
           <div class="settings-label">${Object.keys(s.preferences).length > 0 ? `${Object.keys(s.preferences).length} ricord${Object.keys(s.preferences).length===1?"o":"i"} su di te` : "Nessun ricordo ancora"}</div>
