@@ -1914,25 +1914,42 @@ const FIREBASE_CONFIG = {
 
 /* ─── Firebase Init ─── */
 let firebaseApp, db, auth, ai;
-try {
-  firebaseApp = window.FirebaseApp(FIREBASE_CONFIG);
-  db = window.getFirestore(firebaseApp);
-  auth = window.getAuth(firebaseApp);
-  ai = window.getAI(firebaseApp, { backend: new window.GoogleAIBackend() });
-  console.log("Firebase initialized successfully with AI support");
-} catch (error) {
-  console.error("Firebase initialization failed:", error);
-  // Fallback to basic Firebase without AI
-  try {
-    firebaseApp = window.FirebaseApp(FIREBASE_CONFIG);
-    db = window.getFirestore(firebaseApp);
-    auth = window.getAuth(firebaseApp);
-    ai = null;
-    console.warn("Firebase initialized without AI support");
-  } catch (fallbackError) {
-    console.error("Firebase initialization completely failed:", fallbackError);
+
+// Wait for Firebase modules to be loaded before initializing
+function initializeFirebase() {
+  if (window.FirebaseApp && window.getFirestore && window.getAuth && window.getAI) {
+    try {
+      firebaseApp = window.FirebaseApp(FIREBASE_CONFIG);
+      db = window.getFirestore(firebaseApp);
+      auth = window.getAuth(firebaseApp);
+      ai = window.getAI(firebaseApp, { backend: new window.GoogleAIBackend() });
+      console.log("Firebase initialized successfully with AI support");
+      
+      // Initialize Firebase AI service after Firebase is ready
+      if (typeof GeminiAgent !== 'undefined') {
+        GeminiAgent.initFirebaseAI();
+      }
+    } catch (error) {
+      console.error("Firebase initialization failed:", error);
+      // Fallback to basic Firebase without AI
+      try {
+        firebaseApp = window.FirebaseApp(FIREBASE_CONFIG);
+        db = window.getFirestore(firebaseApp);
+        auth = window.getAuth(firebaseApp);
+        ai = null;
+        console.warn("Firebase initialized without AI support");
+      } catch (fallbackError) {
+        console.error("Firebase initialization completely failed:", fallbackError);
+      }
+    }
+  } else {
+    // Retry after a short delay if Firebase modules aren't loaded yet
+    setTimeout(initializeFirebase, 100);
   }
 }
+
+// Start Firebase initialization
+initializeFirebase();
 const Account = {
   isAnonymous: true,
   displayName: null,
@@ -7989,14 +8006,10 @@ auth.onAuthStateChanged(user => {
   }
 });
 </script>
+
 <!-- Firebase AI Service -->
 <script src="./firebase-ai-service.js"></script>
-<script>
-  // Initialize Firebase AI when available
-  if (typeof GeminiAgent !== 'undefined' && typeof ai !== 'undefined') {
-    GeminiAgent.initFirebaseAI();
-  }
-</script>
+
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
