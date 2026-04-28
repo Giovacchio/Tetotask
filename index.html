@@ -2973,7 +2973,7 @@ REGOLE:
       return null;
     }
     try {
-      // Endpoint v1beta è quello corretto per gemini-1.5-flash
+      // Usiamo v1beta e il modello standard per le prestazioni migliori
       const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + this.apiKey;
       
       const options = {
@@ -3000,11 +3000,13 @@ REGOLE:
 
       const data = await res.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      
+      // Pulizia del testo per sicurezza
       const clean = text.replace(/```json\n?|\n?```/g, "").trim();
       return JSON.parse(clean);
 
     } catch (e) {
-      console.error("Gemini:", e);
+      console.error("Gemini Error:", e);
       showBubble("Gemini dice: " + e.message + " — riprovo in locale 🍞");
       return null;
     }
