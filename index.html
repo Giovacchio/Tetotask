@@ -1891,9 +1891,6 @@ body.offline .offline-banner { display:block; }
 </div>
 
 <script>
-/* ══════════════════════════════════════════════════════════════
-   🍞 CONFIGURAZIONE FIREBASE — INSERISCI I TUOI DATI QUI
-   ══════════════════════════════════════════════════════════════ */
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyARM5ohBfjrmLQG_pdDDOcH06pjOwOStuU",
   authDomain: "tetotask-2d509.firebaseapp.com",
@@ -1908,11 +1905,6 @@ const FIREBASE_CONFIG = {
 firebase.initializeApp(FIREBASE_CONFIG);
 const db   = firebase.firestore();
 const auth = firebase.auth();
-
-/* ═══════════════════════════════════════════════════════════════
-   👤 ACCOUNT — anonymous by default, can upgrade to Google
-   for cross-device sync of lists / tasks / events.
-   ═══════════════════════════════════════════════════════════════ */
 const Account = {
   isAnonymous: true,
   displayName: null,
@@ -2976,42 +2968,46 @@ REGOLE:
   },
 
   async process(userText) {
-    if (!this.apiKey) {
-      showBubble("Inserisci la tua API key Gemini nelle impostazioni 🔑");
-      return null;c
-    }
-    try {
-      const url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=" + API_KEY;
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{
-              role: "user",
-              parts: [{ text: this.systemPrompt() + "\n\nUtente: " + userText }]
-            }],
-            generationConfig: {
-              temperature: 0.7,
-              maxOutputTokens: 1024,
-              responseMimeType: "application/json"
-            }
-          })
+  if (!this.apiKey) {
+    showBubble("Inserisci la tua API key Gemini nelle impostazioni 🔑");
+    return null; 
+  }
+
+  try {
+    const url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=" + this.apiKey;
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          role: "user",
+          parts: [{ text: this.systemPrompt() + "\n\nUtente: " + userText }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1024,
+          responseMimeType: "application/json"
         }
-      );
-      if (!res.ok) {
-        const e = await res.json();
-        throw new Error(e.error?.message || "Errore " + res.status);
-      }
-      const data = await res.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      const clean = text.replace(/```json\n?|\n?```/g,"").trim();
-      return JSON.parse(clean);
-    } catch(e) {
-      console.error("Gemini:", e);
-      showBubble("Gemini dice: " + e.message + " — riprovo in locale 🍞");
-      return null;
+      })
+    }); 
+
+    if (!res.ok) {
+      const e = await res.json();
+      throw new Error(e.error?.message || "Errore " + res.status);
     }
-  },
+
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const clean = text.replace(/```json\n?|\n?```/g, "").trim();
+    return JSON.parse(clean);
+
+  } catch (e) {
+    console.error("Gemini:", e);
+    showBubble("Gemini dice: " + e.message + " — riprovo in locale 🍞");
+    return null;
+  }
+}
 
   async run(userText) {
     showBubble("Gemini sta pensando~ ✨", { silent: true });
@@ -7960,6 +7956,32 @@ auth.onAuthStateChanged(user => {
     });
   }
 });
-</script>
-</body>
+<script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js').then(reg => {
+            
+            // Forza il controllo di una nuova versione sul server
+            reg.update();
+
+            // Rileva se è stato trovato un aggiornamento del SW
+            reg.addEventListener('updatefound', () => {
+              const newWorker = reg.installing;
+              newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  // Avvisa l'utente e ricarica
+                  if (typeof showBubble === "function") {
+                    showBubble("Nuova versione disponibile! Aggiornamento in corso... 🚀");
+                  }
+                  setTimeout(() => {
+                    window.location.reload();
+                  }, 2000);
+                }
+              });
+            });
+          }).catch(err => console.error("Errore registrazione SW:", err));
+        });
+      }
+    </script>
+  </body>
 </html>
