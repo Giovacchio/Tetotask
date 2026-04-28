@@ -10,7 +10,18 @@ const ASSETS = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(ASSETS).catch(err => {
+        console.log('Service Worker: Cache addAll failed:', err);
+        // Prova a cacheare i file essenziali uno per uno
+        return Promise.allSettled(ASSETS.map(asset => {
+          return cache.add(asset).catch(e => {
+            console.log('Failed to cache:', asset, e);
+            return null;
+          });
+        }));
+      });
+    })
   );
   self.skipWaiting();
 });
