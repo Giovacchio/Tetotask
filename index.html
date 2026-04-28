@@ -33,6 +33,40 @@
   window.getAI = getAI;
   window.getGenerativeModel = getGenerativeModel;
   window.GoogleAIBackend = GoogleAIBackend;
+  
+  // Initialize Firebase immediately
+  window.initializeFirebaseModules = function() {
+    try {
+      const FIREBASE_CONFIG = {
+        apiKey: "AIzaSyARM5ohBfjrmLQG_pdDDOcH06pjOwOStuU",
+        authDomain: "tetotask-2d509.firebaseapp.com",
+        projectId: "tetotask-2d509",
+        storageBucket: "tetotask-2d509.firebasestorage.app",
+        messagingSenderId: "653132789863",
+        appId: "1:653132789863:web:0e9c96688bf15fd3e43cc2"
+      };
+      
+      const firebaseApp = window.FirebaseApp(FIREBASE_CONFIG);
+      const db = window.getFirestore(firebaseApp);
+      const auth = window.getAuth(firebaseApp);
+      const ai = window.getAI(firebaseApp, { backend: new window.GoogleAIBackend() });
+      
+      // Make instances globally available
+      window.firebaseApp = firebaseApp;
+      window.db = db;
+      window.auth = auth;
+      window.ai = ai;
+      
+      console.log("✅ Firebase modules initialized successfully");
+      return true;
+    } catch (error) {
+      console.error("❌ Firebase initialization failed:", error);
+      return false;
+    }
+  };
+  
+  // Auto-initialize
+  window.initializeFirebaseModules();
 </script>
 
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@500;600;700;800&display=swap" rel="stylesheet">
