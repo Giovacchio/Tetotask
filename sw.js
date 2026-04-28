@@ -1,4 +1,4 @@
-const CACHE_NAME = "tetotask-v5";
+const CACHE_NAME = "tetotask-v6";
 const ASSETS = [
   "./",
   "./index.html",
