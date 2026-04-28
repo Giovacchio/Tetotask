@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="it">
 <head>
 <meta charset="UTF-8">
@@ -2933,10 +2933,12 @@ const GeminiAgent = {
 Rispondi SOLO in JSON valido:
 { "reply": "messaggio in italiano stile Teto (simpatica, ama il pane 🍞, usa ~ e ♪)", "actions": [] }
 
-AZIONI DISPONIBILI:
+AZIONI DISPONIBILI (puoi combinarne più in un array):
 {"type":"add_task","text":"...","category":"personale|lavoro|urgente","reminderAt":null}
-{"type":"complete_task","query":"testo parziale"}
-{"type":"delete_task","query":"testo parziale"}
+{"type":"complete_task","query":"testo parziale del task"}
+{"type":"delete_task","query":"testo parziale del task"}
+{"type":"add_event","title":"...","date":"YYYY-MM-DD","time":"HH:MM","note":"..."}
+{"type":"delete_event","query":"testo parziale del titolo evento"}
 {"type":"open_calendar"}
 {"type":"close_calendar"}
 {"type":"open_lists"}
@@ -2948,6 +2950,13 @@ AZIONI DISPONIBILI:
 {"type":"set_filter","filter":"all|personale|lavoro|urgente"}
 {"type":"show_help"}
 {"type":"focus_mode"}
+
+REGOLE IMPORTANTI:
+- "cancella/elimina evento" → usa delete_event, MAI delete_task
+- "cancella/elimina task/reminder" → usa delete_task
+- "crea evento/appuntamento/cena/riunione" → usa add_event
+- "ricordami/devo/task" → usa add_task
+- Esegui SEMPRE senza chiedere conferma — Teto è diretta e non esita
 
 STATO ATTUALE:
 - Task attivi: ${state.tasks.filter(t=>!t.done).length}
@@ -2969,7 +2978,7 @@ REGOLE:
   async process(userText) {
     if (!this.apiKey) {
       showBubble("Inserisci la tua API key Gemini nelle impostazioni 🔑");
-      return null;
+      return null;c
     }
     try {
       const url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=" + API_KEY;
@@ -5047,6 +5056,31 @@ async function executeIntent(intent) {
       await updateTaskInDb(match.id, { done: true });
       return `Fatto! "${match.text}" segnato come completato 🌟`;
     }
+    case "add_event": {
+  if (!action.title || !action.date) break;
+  await db.collection("users").doc(state.uid).collection("events").add({
+    title: action.title,
+    date: action.date,
+    time: action.time || "09:00",
+    note: action.note || null,
+    category: "personal",
+    allDay: false,
+    recurrence: "none",
+    reminderOffset: null,
+    ts: Date.now(),
+  });
+  haptic(12); break;
+}
+case "delete_event": {
+  const q = (action.query || "").toLowerCase();
+  const found = Calendar.findByTitle(q);
+  if (found) {
+    await db.collection("users").doc(state.uid)
+      .collection("events").doc(found.event.id).delete();
+    haptic(15);
+  }
+  break;
+}
     case "delete_task": {
       if (!intent.confirmed) {
         state.pendingDangerAction = { kind: "delete_task", payload: { ...intent, confirmed: true } };
