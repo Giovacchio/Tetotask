@@ -4,8 +4,7 @@ const ASSETS = [
   "./index.html",
   "./manifest.json",
   "./icon-192.png",
-  "./icon-512.png",
-  "./gemini-compatibility-fixes.js"
+  "./icon-512.png"
 ];
 
 self.addEventListener("install", (event) => {
