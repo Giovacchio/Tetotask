@@ -2968,45 +2968,47 @@ REGOLE:
   },
 
   async process(userText) {
-  if (!this.apiKey) {
-    showBubble("Inserisci la tua API key Gemini nelle impostazioni 🔑");
-    return null; 
-  }
-
-  try {
-    const url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.0-pro:generateContent?key=" + this.apiKey;
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          role: "user",
-          parts: [{ text: this.systemPrompt() + "\n\nUtente: " + userText }]
-        }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1024
-        }
-      })
-    }); 
-
-    if (!res.ok) {
-      const e = await res.json();
-      throw new Error(e.error?.message || "Errore " + res.status);
+    if (!this.apiKey) {
+      showBubble("Inserisci la tua API key nelle impostazioni 🔑");
+      return null;
     }
+    try {
+      // Endpoint v1beta è quello corretto per gemini-1.5-flash
+      const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + this.apiKey;
+      
+      const options = {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            role: "user",
+            parts: [{ text: this.systemPrompt() + "\n\nUtente: " + userText }]
+          }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 1024
+          }
+        })
+      };
 
-    const data = await res.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const clean = text.replace(/```json\n?|\n?```/g, "").trim();
-    return JSON.parse(clean);
+      const res = await fetch(url, options);
 
-  } catch (e) {
-    console.error("Gemini:", e);
-    showBubble("Gemini dice: " + e.message + " — riprovo in locale 🍞");
-    return null;
-  }
-},
+      if (!res.ok) {
+        const e = await res.json();
+        throw new Error(e.error?.message || "Errore " + res.status);
+      }
+
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const clean = text.replace(/```json\n?|\n?```/g, "").trim();
+      return JSON.parse(clean);
+
+    } catch (e) {
+      console.error("Gemini:", e);
+      showBubble("Gemini dice: " + e.message + " — riprovo in locale 🍞");
+      return null;
+    }
+  },
 
   async run(userText) {
     showBubble("Gemini sta pensando~ ✨", { silent: true });
