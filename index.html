@@ -8000,7 +8000,9 @@ auth.onAuthStateChanged(user => {
     state.uid = user.uid;
     if (!state.ready) {
       state.ready = true;
-      db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+      if (typeof db !== 'undefined' && db && db.enablePersistence) {
+        db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+      }
       listenToTasks();
       Lists.subscribe();
       Calendar.subscribe();       // F1: events available everywhere from boot
