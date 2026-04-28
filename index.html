@@ -7956,32 +7956,34 @@ auth.onAuthStateChanged(user => {
     });
   }
 });
+</script>
 <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js').then(reg => {
-            
-            // Forza il controllo di una nuova versione sul server
-            reg.update();
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').then(reg => {
+        
+        // Forza il controllo di una nuova versione sul server
+        reg.update();
 
-            // Rileva se è stato trovato un aggiornamento del SW
-            reg.addEventListener('updatefound', () => {
-              const newWorker = reg.installing;
-              newWorker.addEventListener('statechange', () => {
-                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                  // Avvisa l'utente e ricarica
-                  if (typeof showBubble === "function") {
-                    showBubble("Nuova versione disponibile! Aggiornamento in corso... 🚀");
-                  }
-                  setTimeout(() => {
-                    window.location.reload();
-                  }, 2000);
-                }
-              });
-            });
-          }).catch(err => console.error("Errore registrazione SW:", err));
+        // Rileva se è stato trovato un aggiornamento del SW
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              // Avvisa l'utente e ricarica
+              if (typeof showBubble === "function") {
+                showBubble("Nuova versione disponibile! Aggiornamento in corso... 🚀");
+              }
+              setTimeout(() => {
+                window.location.reload();
+              }, 2000);
+            }
+          });
         });
-      }
-    </script>
+      }).catch(err => console.error("Errore registrazione SW:", err));
+    });
+  }
+</script>
+    <script src="gemini-compatibility-fixes.js"></script>
   </body>
 </html>

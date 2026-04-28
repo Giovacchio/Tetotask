@@ -4,7 +4,8 @@ const ASSETS = [
   "./index.html",
   "./manifest.json",
   "./icon-192.png",
-  "./icon-512.png"
+  "./icon-512.png",
+  "./gemini-compatibility-fixes.js"
 ];
 
 self.addEventListener("install", (event) => {
@@ -48,7 +49,5 @@ self.addEventListener("fetch", (event) => {
         return cached || networked; // Se hai la cache mostrala subito, altrimenti aspetta la rete
       });
     })
-  );
-});
   );
 });
