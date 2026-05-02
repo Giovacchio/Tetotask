@@ -24,6 +24,41 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 
+<!-- Firebase AI SDK (modular) — salva il modello in window.tetoAI -->
+<script type="module">
+  import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAI, getGenerativeModel, GoogleAIBackend } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-ai.js";
+
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyARM5ohBfjrmLQG_pdDDOcH06pjOwOStuU",
+    authDomain: "tetotask-2d509.firebaseapp.com",
+    projectId: "tetotask-2d509",
+    storageBucket: "tetotask-2d509.firebasestorage.app",
+    messagingSenderId: "653132789863",
+    appId: "1:653132789863:web:0e9c96688bf15fd3e43cc2"
+  };
+
+  try {
+    // Usa l'app già esistente se presente, altrimenti creane una nuova
+    const app = getApps().length > 0
+      ? getApps().find(a => a.name === "tetotask-ai") || getApps()[0]
+      : initializeApp(FIREBASE_CONFIG, "tetotask-ai");
+
+    const ai = getAI(app, { backend: new GoogleAIBackend() });
+    window.tetoAI = getGenerativeModel(ai, {
+      model: "gemini-2.5-flash",
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 1024,
+      },
+    });
+    console.log("✅ Firebase AI SDK pronto (window.tetoAI)");
+  } catch (e) {
+    console.warn("⚠️ Firebase AI SDK non disponibile, uso REST API:", e.message);
+    window.tetoAI = null;
+  }
+</script>
+
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@500;600;700;800&display=swap" rel="stylesheet">
 
 <style>
@@ -2977,45 +3012,46 @@ REGOLE:
   },
 
   async process(userText) {
+    const prompt = this.systemPrompt() + "\n\nUtente: " + userText;
+
+    // ── Percorso 1: Firebase AI SDK (sicuro, nessuna chiave esposta) ──
+    if (window.tetoAI) {
+      try {
+        const result = await window.tetoAI.generateContent(prompt);
+        const text = result.response.text();
+        const clean = text.replace(/```json\n?|\n?```/g, "").trim();
+        return JSON.parse(clean);
+      } catch (e) {
+        console.warn("Firebase AI SDK fallito, uso REST:", e.message);
+        // Fallthrough al percorso REST
+      }
+    }
+
+    // ── Percorso 2: REST API con chiave (fallback) ──
     if (!this.apiKey) {
-      showBubble("Inserisci la tua API key nelle impostazioni 🔑");
+      showBubble("Attiva Firebase AI Logic nella console Firebase, oppure inserisci la tua API key nelle impostazioni 🔑");
       return null;
     }
     try {
-      // Usiamo v1beta e il modello standard per le prestazioni migliori
       const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + this.apiKey;
-      
-      const options = {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{
-            role: "user",
-            parts: [{ text: this.systemPrompt() + "\n\nUtente: " + userText }]
-          }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 1024
-          }
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 1024 }
         })
-      };
-
-      const res = await fetch(url, options);
-
+      });
       if (!res.ok) {
         const e = await res.json();
         throw new Error(e.error?.message || "Errore " + res.status);
       }
-
       const data = await res.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      
-      // Pulizia del testo per sicurezza
       const clean = text.replace(/```json\n?|\n?```/g, "").trim();
       return JSON.parse(clean);
-
     } catch (e) {
-      console.error("Gemini Error:", e);
+      console.error("Gemini REST Error:", e);
       showBubble("Gemini dice: " + e.message + " — riprovo in locale 🍞");
       return null;
     }
@@ -6946,26 +6982,32 @@ function render() {
   <div>
     <div class="settings-label">Gemini AI ${GeminiAgent.enabled?"✅ attivo":""}</div>
     <div class="settings-hint">
-      Usa Google Gemini per capire richieste complesse e navigare l'app automaticamente
-      ${!GeminiAgent.apiKey ? "· ⚠️ API key mancante" : ""}
+      Usa Google Gemini per capire richieste complesse e navigare l'app automaticamente<br>
+      ${window.tetoAI ? "🔒 Firebase AI SDK attivo (sicuro, senza API key)" : (GeminiAgent.apiKey ? "🔑 REST API con chiave personale" : "⚠️ Nessun metodo configurato — attiva Firebase AI Logic nella console")}
     </div>
   </div>
   <div class="toggle ${GeminiAgent.enabled?'on':''}" onclick="GeminiAgent.toggle();render()"></div>
 </div>
-<div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;padding:10px 0">
-  <div class="settings-label">API Key Gemini</div>
+${!window.tetoAI ? \`<div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;padding:10px 0">
+  <div class="settings-label">API Key Gemini (fallback)</div>
   <div style="display:flex;gap:8px">
     <input type="password" class="text-input"
       style="flex:1;min-height:38px;font-size:.85rem;border-radius:10px"
-      placeholder="AIzaSy..." value="${esc(GeminiAgent.apiKey)}"
+      placeholder="AIzaSy..." value="\${esc(GeminiAgent.apiKey)}"
       oninput="GeminiAgent.setKey(this.value)">
     <button class="reminder-clear primary"
       onclick="window.open('https://aistudio.google.com/apikey','_blank')">Ottieni</button>
   </div>
   <div class="settings-hint">
-    Gratuita · 15 req/min · La chiave resta solo sul tuo dispositivo
+    Usata solo se Firebase AI SDK non è disponibile · La chiave resta sul tuo dispositivo
   </div>
-</div>
+</div>\` : \`<div class="settings-row">
+  <div>
+    <div class="settings-label">🔒 Firebase AI SDK attivo</div>
+    <div class="settings-hint">Gemini funziona senza API key — autenticato tramite Firebase Auth</div>
+  </div>
+  <span style="color:var(--red);font-weight:800;font-size:1.1rem">✅</span>
+</div>\`}
       <div class="settings-row">
         <div>
           <div class="settings-label">${Object.keys(s.preferences).length > 0 ? `${Object.keys(s.preferences).length} ricord${Object.keys(s.preferences).length===1?"o":"i"} su di te` : "Nessun ricordo ancora"}</div>
