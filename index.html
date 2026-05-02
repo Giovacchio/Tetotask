@@ -3075,6 +3075,30 @@ REGOLE:
       case "set_filter":     state.filter=action.filter||"all"; break;
       case "show_help":      state.showHelp=true; break;
       case "focus_mode":     Focus.enter(); Focus.startTicker(); break;
+      case "add_event": {
+        if (!action.title || !action.date) break;
+        await db.collection("users").doc(state.uid).collection("events").add({
+          title: action.title,
+          date: action.date,
+          time: action.time || "09:00",
+          note: action.note || null,
+          category: action.category || "personal",
+          allDay: false,
+          recurrence: "none",
+          reminderOffset: null,
+          ts: Date.now(),
+        });
+        haptic(12); break;
+      }
+      case "delete_event": {
+        const found = Calendar.findByTitle((action.query || "").toLowerCase());
+        if (found) {
+          await db.collection("users").doc(state.uid)
+            .collection("events").doc(found.event.id).delete();
+          haptic(15);
+        }
+        break;
+      }
     }
     render();
   },
