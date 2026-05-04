@@ -2963,143 +2963,380 @@ const Timers = {
 const GeminiAgent = {
   enabled: localStorage.getItem("teto-gemini-enabled") === "1",
   apiKey:  localStorage.getItem("teto-gemini-key") || "",
+  history: [],
+  MAX_HISTORY: 6,
+  _thinkingTimer: null,
 
   systemPrompt() {
-    return `Sei Teto, l'assistente di TetoTask - app italiana per task, eventi, liste e promemoria.
-Rispondi SOLO in JSON valido:
-{ "reply": "messaggio in italiano stile Teto (simpatica, ama il pane 🍞, usa ~ e ♪)", "actions": [] }
+    const now     = new Date();
+    const hh      = now.getHours().toString().padStart(2,"0");
+    const mm      = now.getMinutes().toString().padStart(2,"0");
+    const today   = now.toLocaleDateString("it-IT",{weekday:"long",day:"numeric",month:"long"});
+    const todayKey= `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+    const activeTasks = state.tasks.filter(t=>!t.done);
+    const doneTasks   = state.tasks.filter(t=>t.done);
+    const overdue     = activeTasks.filter(t=>t.reminderAt && t.reminderAt < Date.now());
+    const todayTasks  = activeTasks.filter(t=>{
+      if (!t.reminderAt) return false;
+      const d = new Date(t.reminderAt);
+      return d.toDateString() === now.toDateString();
+    });
+    const taskLines = activeTasks.slice(0,15).map(t=>{
+      const cat  = t.category||"personale";
+      const rem  = t.reminderAt ? ` ⏰${new Date(t.reminderAt).toLocaleString("it-IT",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}` : "";
+      const late = (t.reminderAt && t.reminderAt < Date.now()) ? " ⚠️SCADUTO" : "";
+      return `  [${t.id}] [${cat}]${rem}${late} "${t.text}"`;
+    }).join("\n");
+    const todayEvts = (typeof Calendar!=="undefined" ? Calendar.eventsOnDay(todayKey) : [])
+      .map(e=>`  ${e.allDay?"tutto il giorno":(e.time||"?")} — ${e.title}${e.note?` (${e.note})`:""}`).join("\n");
+    const listsInfo = Lists.lists.map(l=>{
+      const items = Lists.items[l.id]||[];
+      const pend  = l.checkable ? items.filter(x=>!x.done).length : items.length;
+      const done2 = l.checkable ? items.filter(x=>x.done).length : 0;
+      const top3  = items.slice(0,3).map(x=>x.text).join(", ");
+      return `  "${l.name}" [${l.emoji}${l.checkable?" ☑":""}] — ${pend} voci${l.checkable?`, ${done2} fatte`:""}: ${top3}${items.length>3?"...":""}`;
+    }).join("\n");
+    const memory   = Prefs.list().slice(0,8).map(p=>`  • ${p.value}`).join("\n");
+    const userName = Prefs.firstName();
 
-AZIONI DISPONIBILI (puoi combinarne più in un array):
-{"type":"add_task","text":"...","category":"personale|lavoro|urgente","reminderAt":null}
-{"type":"complete_task","query":"testo parziale del task"}
-{"type":"delete_task","query":"testo parziale del task"}
-{"type":"add_event","title":"...","date":"YYYY-MM-DD","time":"HH:MM","note":"..."}
-{"type":"delete_event","query":"testo parziale del titolo evento"}
+    return `Sei Teto, l'assistente IA di TetoTask — app italiana per task, eventi, liste e promemoria.
+Personalità: simpatica, usa ~ e ♪, ama il pane 🍞, diretta, risponde SEMPRE in italiano.
+
+━━━ RISPOSTA (JSON PURO, nessun testo fuori) ━━━
+{ "reply": "messaggio breve Teto-style", "actions": [], "suggestion": null }
+
+"suggestion": proposta proattiva opzionale (es. "Vuoi che pianifichi anche domani?"). Solo se aggiunge valore.
+
+━━━ CONTESTO APP ━━━
+Ora: ${hh}:${mm} — ${today}
+Utente: ${userName||"anonimo"}
+Vista: calendario=${Calendar.open_}, liste=${Lists.open_}, filtro=${state.filter}
+Task attivi: ${activeTasks.length} (${overdue.length} scaduti, ${todayTasks.length} oggi)
+Task completati: ${doneTasks.length}
+${taskLines ? `\nTask attivi (id, categoria, reminder, testo):\n${taskLines}` : ""}
+${todayEvts ? `\nEventi oggi:\n${todayEvts}` : "\nNessun evento oggi"}
+${listsInfo ? `\nListe:\n${listsInfo}` : "\nNessuna lista"}
+${memory ? `\nMemoria utente:\n${memory}` : ""}
+
+━━━ AZIONI DISPONIBILI ━━━
+TASK:
+{"type":"add_task","text":"...","category":"personale|lavoro|urgente","reminderAt":"ISO8601|null","note":"..."}
+{"type":"complete_task","query":"testo parziale o id"}
+{"type":"complete_multiple","category":"personale|lavoro|urgente|all"}
+{"type":"delete_task","query":"testo parziale o id"}
+{"type":"delete_done"}
+{"type":"update_task","query":"...","newText":"...","note":"..."}
+{"type":"set_reminder","query":"...","reminderAt":"ISO8601"}
+{"type":"set_category","query":"...","category":"personale|lavoro|urgente"}
+{"type":"undo"}
+
+EVENTI:
+{"type":"add_event","title":"...","date":"YYYY-MM-DD","time":"HH:MM","note":"...","category":"personal|work|health|social|other","allDay":false,"recurrence":"none|daily|weekly|monthly|yearly"}
+{"type":"update_event","query":"...","title":"...","date":"YYYY-MM-DD","time":"HH:MM","note":"..."}
+{"type":"delete_event","query":"..."}
+
+LISTE:
+{"type":"create_list","name":"...","emoji":"...","checkable":false}
+{"type":"add_list_item","listName":"...","item":"..."}
+{"type":"bulk_add_list","listName":"...","items":["...","...","..."]}
+{"type":"check_list_item","listName":"...","query":"..."}
+{"type":"delete_list_item","listName":"...","query":"..."}
+{"type":"rename_list","oldName":"...","newName":"...","emoji":"..."}
+{"type":"delete_list","name":"..."}
+{"type":"clear_list_done","listName":"..."}
+
+NAVIGAZIONE:
 {"type":"open_calendar"}
 {"type":"close_calendar"}
 {"type":"open_lists"}
-{"type":"create_list","name":"...","emoji":"...","checkable":false}
-{"type":"add_list_item","listName":"...","item":"..."}
 {"type":"open_list","name":"..."}
 {"type":"open_settings"}
 {"type":"close_all"}
 {"type":"set_filter","filter":"all|personale|lavoro|urgente"}
 {"type":"show_help"}
 {"type":"focus_mode"}
+{"type":"briefing"}
+{"type":"plan_day"}
 
-REGOLE IMPORTANTI:
-- "cancella/elimina evento" → usa delete_event, MAI delete_task
-- "cancella/elimina task/reminder" → usa delete_task
-- "crea evento/appuntamento/cena/riunione" → usa add_event
-- "ricordami/devo/task" → usa add_task
-- Esegui SEMPRE senza chiedere conferma — Teto è diretta e non esita
+UTILITÀ:
+{"type":"timer","ms":300000,"label":"5 minuti"}
+{"type":"set_pref","key":"...","value":"..."}
+{"type":"speak","text":"..."}
 
-STATO ATTUALE:
-- Task attivi: ${state.tasks.filter(t=>!t.done).length}
-- Task completati: ${state.tasks.filter(t=>t.done).length}
-- Liste: ${Lists.lists.map(l=>l.name).join(", ")||"nessuna"}
-- Calendario aperto: ${Calendar.open_}
-- Liste aperte: ${Lists.open_}
-- Filtro: ${state.filter}
-Ultimi task:
-${state.tasks.slice(0,5).map(t=>`- ${t.done?"[✓]":"[ ]"} ${t.text}`).join("\n")}
+━━━ REGOLE ASSOLUTE ━━━
+1. "reply" NON vuoto MAI
+2. Esegui SENZA chiedere conferma — Teto è diretta
+3. EVENTO → delete_event/update_event, TASK → delete_task/update_task
+4. "reminderAt" deve essere ISO8601 valido (es. "2025-06-15T09:00:00")
+5. "tutti/ogni/tutte le" → usa azioni bulk
+6. Combina azioni (max 5 per volta)
+7. Solo JSON — zero testo fuori dal JSON
+8. Per richieste ambigue scegli l'interpretazione più utile`;
+  },
 
-REGOLE:
-1. "reply" è SEMPRE presente e non vuoto
-2. Se l'utente vuole fare qualcosa sull'app → metti l'azione in "actions"
-3. Puoi combinare più azioni (es. crea lista + aggiungi voci)
-4. Solo JSON valido — nessun testo fuori`;
+  extractJSON(raw) {
+    if (!raw) return null;
+    let s = raw.replace(/```json\s*/gi,"").replace(/```\s*/g,"").trim();
+    const first = s.indexOf("{");
+    const last  = s.lastIndexOf("}");
+    if (first < 0 || last < 0) return null;
+    s = s.slice(first, last+1);
+    try { return JSON.parse(s); } catch(e) {}
+    s = s.replace(/,\s*([\]}])/g, "$1");
+    try { return JSON.parse(s); } catch(e) {}
+    s = s.replace(/:\s*"((?:[^"\\]|\\.)*)"/gs, (m,v) => `: "${v.replace(/\n/g,"\\n").replace(/\r/g,"")}"`);
+    try { return JSON.parse(s); } catch(e) {}
+    return null;
+  },
+
+  _startThinking() {
+    let dots = 0;
+    const frames = ["Gemini sta pensando~","Gemini sta pensando~ .","Gemini sta pensando~ ..","Gemini sta pensando~ ..."];
+    this._thinkingTimer = setInterval(() => {
+      dots = (dots+1)%4;
+      const b = document.querySelector(".bubble");
+      if (b) b.textContent = frames[dots];
+    }, 400);
+  },
+  _stopThinking() {
+    clearInterval(this._thinkingTimer);
+    this._thinkingTimer = null;
   },
 
   async process(userText) {
-    const prompt = this.systemPrompt() + "\n\nUtente: " + userText;
+    const systemMsg = this.systemPrompt();
 
-    // ── Percorso 1: Firebase AI SDK (sicuro, nessuna chiave esposta) ──
+    // ── Percorso 1: Firebase AI SDK ──
     if (window.tetoAI) {
       try {
-        const result = await window.tetoAI.generateContent(prompt);
-        const text = result.response.text();
-        const clean = text.replace(/```json\n?|\n?```/g, "").trim();
-        return JSON.parse(clean);
+        const chat = window.tetoAI.startChat({
+          systemInstruction: { parts: [{ text: systemMsg }] },
+          history: this.history.map(t => ({ role: t.role, parts: [{ text: t.text }] })),
+        });
+        const result = await chat.sendMessage(userText);
+        const text   = result.response.text();
+        const parsed = this.extractJSON(text);
+        if (parsed) { this._saveHistory(userText, text); return parsed; }
+        throw new Error("JSON non valido");
       } catch (e) {
         console.warn("Firebase AI SDK fallito, uso REST:", e.message);
-        // Fallthrough al percorso REST
       }
     }
 
-    // ── Percorso 2: REST API con chiave (fallback) ──
+    // ── Percorso 2: REST fallback ──
     if (!this.apiKey) {
-      showBubble("Attiva Firebase AI Logic nella console Firebase, oppure inserisci la tua API key nelle impostazioni 🔑");
+      showBubble("Attiva Firebase AI Logic nella console, oppure inserisci la API key nelle impostazioni 🔑");
       return null;
     }
     try {
-      const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + this.apiKey;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${this.apiKey}`;
+      const contents = [
+        { role:"user",  parts:[{ text: systemMsg + "\n\n[Conferma formato JSON]" }] },
+        { role:"model", parts:[{ text: '{"reply":"Capito! Sono Teto.","actions":[]}' }] },
+        ...this.history.map(t => ({ role: t.role, parts: [{ text: t.text }] })),
+        { role:"user",  parts:[{ text: userText }] },
+      ];
       const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 1024 }
-        })
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ contents, generationConfig:{ temperature:0.7, maxOutputTokens:1024 } })
       });
-      if (!res.ok) {
-        const e = await res.json();
-        throw new Error(e.error?.message || "Errore " + res.status);
-      }
-      const data = await res.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      const clean = text.replace(/```json\n?|\n?```/g, "").trim();
-      return JSON.parse(clean);
+      if (!res.ok) { const e=await res.json(); throw new Error(e.error?.message||"Errore "+res.status); }
+      const data   = await res.json();
+      const text   = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const parsed = this.extractJSON(text);
+      if (parsed) { this._saveHistory(userText, text); return parsed; }
+      throw new Error("JSON non valido dalla risposta REST");
     } catch (e) {
       console.error("Gemini REST Error:", e);
-      showBubble("Gemini dice: " + e.message + " — riprovo in locale 🍞");
+      showBubble("Gemini: " + e.message + " — uso logica locale 🍞");
       return null;
     }
   },
 
+  _saveHistory(userText, assistantText) {
+    this.history.push({ role:"user",  text: userText });
+    this.history.push({ role:"model", text: assistantText });
+    if (this.history.length > this.MAX_HISTORY * 2) {
+      this.history = this.history.slice(-this.MAX_HISTORY * 2);
+    }
+  },
+
+  clearHistory() {
+    this.history = [];
+    showBubble("Contesto conversazione azzerato~ 🍞");
+  },
+
   async run(userText) {
-    showBubble("Gemini sta pensando~ ✨", { silent: true });
+    this._startThinking();
     const result = await this.process(userText);
+    this._stopThinking();
     if (!result) return false;
     if (result.reply) showBubble(result.reply);
     if (result.actions?.length) {
       for (const action of result.actions) {
         await this.exec(action);
-        await new Promise(r => setTimeout(r, 150));
+        await new Promise(r => setTimeout(r, 120));
       }
+      render();
+    }
+    if (result.suggestion) {
+      setTimeout(() => showBubble(result.suggestion), 2200);
     }
     return true;
   },
 
   async exec(action) {
+    const col = (sub) => db.collection("users").doc(state.uid).collection(sub);
     switch (action.type) {
+
       case "add_task": {
-        await addTaskToDb({ id:genId(), text:action.text, category:action.category||state.cat,
-          note:"", done:false, ts:Date.now(), reminderAt:action.reminderAt||null });
+        await addTaskToDb({
+          id:genId(), text:action.text, category:action.category||state.cat,
+          note:action.note||"", done:false, ts:Date.now(),
+          reminderAt: action.reminderAt ? new Date(action.reminderAt).getTime() : null,
+        });
         haptic(12); break;
       }
       case "complete_task": {
-        const m = state.tasks.find(t=>!t.done&&t.text.toLowerCase().includes((action.query||"").toLowerCase()));
+        const q = (action.query||"").toLowerCase();
+        const m = state.tasks.find(t=>!t.done&&(t.id===action.query||t.text.toLowerCase().includes(q)));
         if (m) { await updateTaskInDb(m.id,{done:true}); haptic(20); } break;
       }
+      case "complete_multiple": {
+        const cat = action.category;
+        const targets = state.tasks.filter(t=>!t.done&&(cat==="all"||!cat||t.category===cat));
+        for (const t of targets) await updateTaskInDb(t.id,{done:true});
+        haptic(20); break;
+      }
       case "delete_task": {
-        const m = state.tasks.find(t=>t.text.toLowerCase().includes((action.query||"").toLowerCase()));
+        const q = (action.query||"").toLowerCase();
+        const m = state.tasks.find(t=>t.id===action.query||t.text.toLowerCase().includes(q));
         if (m) { state.undoTask={...m}; await deleteTaskFromDb(m.id); haptic(15); } break;
       }
-      case "open_calendar":   Calendar.open(); break;
-      case "close_calendar":  Calendar.close(); break;
-      case "open_lists":      Lists.open(); break;
+      case "delete_done": {
+        const done = state.tasks.filter(t=>t.done);
+        for (const t of done) await deleteTaskFromDb(t.id);
+        haptic(10); break;
+      }
+      case "update_task": {
+        const q = (action.query||"").toLowerCase();
+        const m = state.tasks.find(t=>t.id===action.query||t.text.toLowerCase().includes(q));
+        if (m) {
+          const upd = {};
+          if (action.newText) upd.text = action.newText;
+          if (action.note !== undefined) upd.note = action.note;
+          await updateTaskInDb(m.id, upd); haptic(8);
+        }
+        break;
+      }
+      case "set_reminder": {
+        const q = (action.query||"").toLowerCase();
+        const m = state.tasks.find(t=>t.id===action.query||t.text.toLowerCase().includes(q));
+        if (m && action.reminderAt) {
+          await updateTaskInDb(m.id,{reminderAt:new Date(action.reminderAt).getTime()}); haptic(8);
+        }
+        break;
+      }
+      case "set_category": {
+        const q = (action.query||"").toLowerCase();
+        const m = state.tasks.find(t=>t.id===action.query||t.text.toLowerCase().includes(q));
+        if (m && action.category) { await updateTaskInDb(m.id,{category:action.category}); haptic(6); } break;
+      }
+      case "undo": { undoDelete(); break; }
+
+      case "add_event": {
+        if (!action.title) break;
+        const d = action.date||new Date().toISOString().slice(0,10);
+        await col("events").add({
+          title:action.title, date:d, time:action.time||"09:00",
+          note:action.note||null, category:action.category||"personal",
+          allDay:!!action.allDay, recurrence:action.recurrence||"none",
+          reminderOffset:null, ts:Date.now(),
+        });
+        haptic(12); break;
+      }
+      case "update_event": {
+        const found = Calendar.findByTitle((action.query||"").toLowerCase());
+        if (found) {
+          const upd = {};
+          if (action.title) upd.title = action.title;
+          if (action.date)  upd.date  = action.date;
+          if (action.time)  upd.time  = action.time;
+          if (action.note !== undefined) upd.note = action.note;
+          await col("events").doc(found.event.id).update(upd); haptic(8);
+        }
+        break;
+      }
+      case "delete_event": {
+        const found = Calendar.findByTitle((action.query||"").toLowerCase());
+        if (found) { await col("events").doc(found.event.id).delete(); haptic(15); } break;
+      }
+
       case "create_list": {
         const id = genId();
-        await db.collection("users").doc(state.uid).collection("lists").doc(id).set({
+        await col("lists").doc(id).set({
           name:action.name, emoji:action.emoji||guessListEmoji(action.name),
-          checkable:!!action.checkable, ts:Date.now()
+          checkable:!!action.checkable, category:"general", ts:Date.now(),
         }); break;
       }
       case "add_list_item": {
         const list = Lists.findByName(action.listName);
         if (list) await Lists.addItem(list.id, action.item); break;
       }
+      case "bulk_add_list": {
+        let list = Lists.findByName(action.listName);
+        let lid  = list?.id;
+        if (!lid) {
+          lid = genId();
+          await col("lists").doc(lid).set({
+            name:action.listName, emoji:guessListEmoji(action.listName),
+            checkable:false, category:"general", ts:Date.now(),
+          });
+        }
+        for (const item of (action.items||[])) {
+          if (item.trim()) await Lists.addItem(lid, item.trim());
+          await new Promise(r=>setTimeout(r,50));
+        }
+        haptic(10); break;
+      }
+      case "check_list_item": {
+        const list = Lists.findByName(action.listName);
+        if (!list) break;
+        const q    = (action.query||"").toLowerCase();
+        const item = (Lists.items[list.id]||[]).find(x=>!x.done&&x.text.toLowerCase().includes(q));
+        if (item) await Lists.toggleItem(list.id, item.id, false); break;
+      }
+      case "delete_list_item": {
+        const list = Lists.findByName(action.listName);
+        if (!list) break;
+        const q    = (action.query||"").toLowerCase();
+        const item = (Lists.items[list.id]||[]).find(x=>x.text.toLowerCase().includes(q));
+        if (item) await Lists.deleteItem(list.id, item.id); break;
+      }
+      case "rename_list": {
+        const list = Lists.findByName(action.oldName);
+        if (list) await Lists.renameList(list.id, action.newName||list.name, action.emoji); break;
+      }
+      case "delete_list": {
+        const list = Lists.findByName(action.name);
+        if (list) {
+          const snap  = await col("lists").doc(list.id).collection("items").get();
+          const batch = db.batch();
+          snap.forEach(d=>batch.delete(d.ref));
+          batch.delete(col("lists").doc(list.id));
+          await batch.commit();
+          if (Lists.currentListId===list.id) Lists.back();
+        }
+        break;
+      }
+      case "clear_list_done": {
+        const list = Lists.findByName(action.listName);
+        if (list) await Lists.clearCompleted(list.id); break;
+      }
+
+      case "open_calendar":  Calendar.open(); break;
+      case "close_calendar": Calendar.close(); break;
+      case "open_lists":     Lists.open(); break;
       case "open_list": {
         const list = Lists.findByName(action.name);
         if (list) Lists.open(list.id); break;
@@ -3111,39 +3348,28 @@ REGOLE:
       case "set_filter":     state.filter=action.filter||"all"; break;
       case "show_help":      state.showHelp=true; break;
       case "focus_mode":     Focus.enter(); Focus.startTicker(); break;
-      case "add_event": {
-        if (!action.title || !action.date) break;
-        await db.collection("users").doc(state.uid).collection("events").add({
-          title: action.title,
-          date: action.date,
-          time: action.time || "09:00",
-          note: action.note || null,
-          category: action.category || "personal",
-          allDay: false,
-          recurrence: "none",
-          reminderOffset: null,
-          ts: Date.now(),
-        });
-        haptic(12); break;
+      case "briefing":       Briefing.show(true); break;
+      case "plan_day": {
+        const r = Planner.build();
+        if (r.hasItems) state.planSuggestion = r; break;
       }
-      case "delete_event": {
-        const found = Calendar.findByTitle((action.query || "").toLowerCase());
-        if (found) {
-          await db.collection("users").doc(state.uid)
-            .collection("events").doc(found.event.id).delete();
-          haptic(15);
-        }
-        break;
+      case "timer": {
+        if (action.ms && action.ms > 0) Timers.start(action.ms, action.label||"timer"); break;
+      }
+      case "set_pref": {
+        if (action.key && action.value) Prefs.set(action.key, action.value); break;
+      }
+      case "speak": {
+        if (action.text) TTS.speak(action.text, {force:true}); break;
       }
     }
-    render();
   },
 
   toggle() {
     this.enabled = !this.enabled;
     localStorage.setItem("teto-gemini-enabled", this.enabled?"1":"0");
     showBubble(this.enabled
-      ? "Gemini attivato! Capisco richieste complesse e navigo l'app per te~ ✨"
+      ? "Gemini attivato! Capisco richieste complesse, gestisco l'app per te~ ✨"
       : "Torno alla modalità locale 🍞");
     render();
   },
@@ -3153,6 +3379,7 @@ REGOLE:
     localStorage.setItem("teto-gemini-key", this.apiKey);
   }
 };
+
 /* ─── Unit conversion (length, mass, volume, time) ────────────── */
 const UNITS = {
   // mass (base g)
@@ -6986,7 +7213,10 @@ function render() {
       ${window.tetoAI ? "🔒 Firebase AI SDK attivo (sicuro, senza API key)" : (GeminiAgent.apiKey ? "🔑 REST API con chiave personale" : "⚠️ Nessun metodo configurato — attiva Firebase AI Logic nella console")}
     </div>
   </div>
-  <div class="toggle ${GeminiAgent.enabled?'on':''}" onclick="GeminiAgent.toggle();render()"></div>
+  <div style="display:flex;gap:6px;align-items:center">
+    ${GeminiAgent.history.length>0?`<button class="reminder-clear" style="font-size:.7rem;padding:4px 8px" onclick="GeminiAgent.clearHistory();render()" title="Azzera storico conversazione">↺ storia</button>`:""}
+    <div class="toggle ${GeminiAgent.enabled?'on':''}" onclick="GeminiAgent.toggle();render()"></div>
+  </div>
 </div>
 ${!window.tetoAI ? \`<div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;padding:10px 0">
   <div class="settings-label">API Key Gemini (fallback)</div>
