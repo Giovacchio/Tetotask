@@ -29,7 +29,8 @@
   import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getAI, getGenerativeModel, GoogleAIBackend } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-ai.js";
 
-  const FIREBASE_CONFIG = {
+  // Config separata per la named app AI (evita conflitto con compat default app)
+  const _AI_CFG = {
     apiKey: "AIzaSyARM5ohBfjrmLQG_pdDDOcH06pjOwOStuU",
     authDomain: "tetotask-2d509.firebaseapp.com",
     projectId: "tetotask-2d509",
@@ -39,22 +40,18 @@
   };
 
   try {
-    // Usa l'app già esistente se presente, altrimenti creane una nuova
-    const app = getApps().length > 0
-      ? getApps().find(a => a.name === "tetotask-ai") || getApps()[0]
-      : initializeApp(FIREBASE_CONFIG, "tetotask-ai");
+    // Named app "tetotask-ai" separata dalla default app compat
+    const app = getApps().find(a => a.name === "tetotask-ai")
+              || initializeApp(_AI_CFG, "tetotask-ai");
 
     const ai = getAI(app, { backend: new GoogleAIBackend() });
     window.tetoAI = getGenerativeModel(ai, {
       model: "gemini-2.5-flash",
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 1024,
-      },
+      generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
     });
     console.log("✅ Firebase AI SDK pronto (window.tetoAI)");
   } catch (e) {
-    console.warn("⚠️ Firebase AI SDK non disponibile, uso REST API:", e.message);
+    console.warn("⚠️ Firebase AI SDK non disponibile, uso REST:", e.message);
     window.tetoAI = null;
   }
 </script>
@@ -2091,6 +2088,8 @@ const Account = {
   async signOut() {
     if (!await Modal.confirm("Disconnettersi? I dati resteranno nel cloud ma non saranno più visibili qui.", { title: "Disconnetti", danger: true, okLabel: "Disconnetti" })) return;
     try {
+      clearTimeout(proactiveTimer);
+      Timers.cancelAll();
       await auth.signOut();
       // Auto-login as anonymous so app keeps working
       const cred = await auth.signInAnonymously();
@@ -2388,9 +2387,11 @@ const Briefing = {
       if (!navigator.geolocation) return resolve(null);
       const cached = Prefs.get("location_home");
       if (cached) return resolve(cached);
+      // Timeout di sicurezza: se geolocation non risponde entro 5s risolvi null
+      const safeTimeout = setTimeout(() => resolve(null), 5000);
       navigator.geolocation.getCurrentPosition(
-        p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
-        () => resolve(null),
+        p => { clearTimeout(safeTimeout); resolve({ lat: p.coords.latitude, lon: p.coords.longitude }); },
+        () => { clearTimeout(safeTimeout); resolve(null); },
         { timeout: 4000, maximumAge: 3600000 }
       );
     });
@@ -3168,8 +3169,12 @@ UTILITÀ:
 
   async run(userText) {
     this._startThinking();
-    const result = await this.process(userText);
-    this._stopThinking();
+    let result = null;
+    try {
+      result = await this.process(userText);
+    } finally {
+      this._stopThinking();
+    }
     if (!result) return false;
     if (result.reply) showBubble(result.reply);
     if (result.actions?.length) {
@@ -4912,7 +4917,7 @@ async function processUserCommand(rawText, source = "text") {
   if (!original) return { ok: true, empty: true };
   state.lastUtterance = original;
   // Route through Gemini if enabled
-if (GeminiAgent.enabled && GeminiAgent.apiKey) {
+if (GeminiAgent.enabled && (window.tetoAI || GeminiAgent.apiKey)) {
   const ok = await GeminiAgent.run(original);
   if (ok) return { ok: true, source: "gemini" };
   // Gemini fallisce → continua con il parser locale
@@ -5811,6 +5816,7 @@ const Calendar = {
           arr.sort((a,b) => (a.time||"99:99").localeCompare(b.time||"99:99"));
         });
         this.events = grouped;
+        this._evCache = {};  // invalida cache eventsOnDay
         // Partial re-render: only rebuild the calendar overlay if it's open.
         // Avoids the full-page reload effect when events sync from another device.
         if (this.open_) renderCalendarOnly();
@@ -5921,6 +5927,11 @@ const Calendar = {
      considering recurrence. Result: array of synthetic event objects (with
      `_originalDate` to know the source). */
   eventsOnDay(dayKey) {
+    // Cache LRU semplice: invalida se events è cambiato
+    if (!this._evCache) this._evCache = {};
+    const cacheKey = dayKey + "_" + Object.keys(this.events).length;
+    if (this._evCache[cacheKey]) return this._evCache[cacheKey];
+
     const result = [];
     const [yy, mm, dd] = dayKey.split("-").map(Number);
     const dayDate = new Date(yy, mm-1, dd);
@@ -5947,7 +5958,11 @@ const Calendar = {
         }
       }
     }
-    return result.sort((a,b) => (a.time||"99:99").localeCompare(b.time||"99:99"));
+    const sorted = result.sort((a,b) => (a.time||"99:99").localeCompare(b.time||"99:99"));
+    // Salva in cache (max 60 entry per non occupare troppa memoria)
+    if (Object.keys(this._evCache).length > 60) this._evCache = {};
+    this._evCache[cacheKey] = sorted;
+    return sorted;
   },
 
   /* ─── U1: Agenda view — flat list of next N days with events ─── */
@@ -6694,17 +6709,17 @@ async function deleteTaskFromDb(id) {
 }
 
 function listenToTasks() {
-  if (unsubFirestore) unsubFirestore();
+  if (unsubFirestore) { try { unsubFirestore(); } catch(e){} }
   unsubFirestore = tasksRef().orderBy("ts","desc").onSnapshot(snap => {
     state.tasks = snap.docs.map(d => ({ id:d.id, ...d.data() }));
-    // Don't force a full re-render if user is inside an overlay — they'd
-    // see the overlay flicker / lose scroll for no reason. Tasks list
-    // is only visible on the main screen.
-    if (!Calendar.open_ && !Lists.open_ && !state.showSettings && !state.showHelp) {
+    // Solo re-render se la vista principale è attiva
+    if (!Calendar.open_ && !Lists.open_ && !state.showSettings && !state.showHelp && !state.focusMode) {
       render();
     }
   }, err => {
     console.error("Firestore listen error:", err);
+    // Retry automatico dopo 3s su errore di rete
+    setTimeout(() => { if (state.uid) listenToTasks(); }, 3000);
   });
 }
 
@@ -6784,7 +6799,7 @@ async function addTask() {
     state.input = "";
     state.reminderAt = null;
     state.showReminderPicker = false;
-    addTaskToDb(task);
+    await addTaskToDb(task);
     showBubble(TETO.remSet);
     haptic(12);
     requestNotifPermission();
@@ -6800,7 +6815,7 @@ async function addTask() {
     console.error("Intent error:", err);
     // Fallback: plain task
     const task = { id:genId(), text, category:state.cat, note:"", done:false, ts:Date.now(), reminderAt:null };
-    addTaskToDb(task);
+    await addTaskToDb(task);
     showBubble(pick(TETO.added));
   }
 }
@@ -6844,7 +6859,7 @@ function undoDelete() {
   const t = state.undoTask;
   state.undoTask = null;
   clearTimeout(undoTimer);
-  addTaskToDb(t);
+  await addTaskToDb(t);
   showBubble(TETO.undone);
   haptic(10);
   render();
@@ -8202,9 +8217,10 @@ auth.onAuthStateChanged(user => {
     state.uid = user.uid;
     if (!state.ready) {
       state.ready = true;
-      if (typeof db !== 'undefined' && db && db.enablePersistence) {
-        db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
-      }
+      // Firestore offline persistence (impostazione a livello di istanza, non deprecata)
+      try {
+        firebase.firestore().settings({ cacheSizeBytes: firebase.firestore.CACHE_SIZE_UNLIMITED });
+      } catch(e) { /* già configurato */ }
       listenToTasks();
       Lists.subscribe();
       Calendar.subscribe();       // F1: events available everywhere from boot
