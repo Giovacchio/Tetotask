@@ -1314,6 +1314,66 @@ textarea.cal-form-input { resize: vertical; min-height: 60px; }
 [data-theme="dark"] .cal-event-recur { background: rgba(255,107,142,.15); color: var(--dark); }
 [data-theme="dark"] .cal-event-reminder { background: rgba(255,184,77,.2); color: var(--accent-gold); }
 
+.smart-hint {
+  font-size:.76rem; font-weight:700; color:var(--deep);
+  background:rgba(255,47,94,.07); padding:5px 12px;
+  border-radius:10px; margin:6px 0 2px;
+  border-left:3px solid var(--red); animation:fadeUp .2s ease;
+}
+.smart-hint strong { color:var(--red); }
+
+/* ─── GLOBAL SEARCH ─── */
+.global-search-bar {
+  position:relative; display:flex; align-items:center; margin-bottom:8px;
+}
+.global-search-input {
+  width:100%; padding:10px 36px 10px 14px;
+  border:2px solid var(--card-border); border-radius:14px;
+  background:var(--cream); color:var(--dark);
+  font-family:'Nunito',sans-serif; font-size:.9rem; font-weight:600;
+  outline:none; transition:all .2s; box-sizing:border-box;
+}
+.global-search-input:focus { border-color:var(--red); background:#fff; box-shadow:0 0 0 3px rgba(255,47,94,.1); }
+.gs-clear {
+  position:absolute; right:10px; top:50%; transform:translateY(-50%);
+  background:none; border:none; color:var(--muted);
+  font-size:1rem; cursor:pointer; padding:4px; line-height:1;
+}
+.gs-clear:hover { color:var(--red); }
+.search-results {
+  background:var(--card); border:1.5px solid var(--card-border);
+  border-radius:14px; padding:8px; margin-bottom:8px;
+  box-shadow:0 4px 18px rgba(255,47,94,.1); animation:fadeUp .2s ease;
+}
+.sr-section {
+  font-size:.72rem; font-weight:800; color:var(--blush);
+  text-transform:uppercase; letter-spacing:.06em;
+  padding:6px 6px 4px; border-top:1px dashed var(--card-border); margin-top:4px;
+}
+.sr-section:first-child { border-top:none; margin-top:0; }
+.sr-item {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:8px; border-radius:10px; cursor:pointer;
+  font-size:.88rem; font-weight:600; color:var(--dark); transition:background .12s;
+}
+.sr-item:hover { background:rgba(255,47,94,.07); }
+.sr-cat {
+  font-size:.7rem; font-weight:700; color:var(--muted);
+  background:var(--cream); padding:2px 7px; border-radius:8px;
+  flex-shrink:0; margin-left:8px; white-space:nowrap;
+}
+.sr-empty { text-align:center; padding:12px; font-size:.85rem; color:var(--muted); font-weight:600; }
+.search-toggle-btn {
+  width:38px; height:38px; border-radius:10px;
+  background:#fff; border:2px solid var(--card-border);
+  color:var(--muted); font-size:1rem;
+  display:flex; align-items:center; justify-content:center;
+  transition:all .15s; margin-left:2px;
+}
+.search-toggle-btn:hover, .search-toggle-btn.on { border-color:var(--red); color:var(--red); }
+[data-theme="dark"] .global-search-input { color:var(--dark); color-scheme:dark; }
+[data-theme="dark"] .sr-item { color:var(--dark); }
+
 .footer { text-align:center; font-size:.78rem; color:var(--blush); margin-top:32px; font-weight:700; letter-spacing:.04em;
   font-family:'Fredoka', 'Nunito', sans-serif;
   padding:8px; }
@@ -5800,6 +5860,7 @@ const Calendar = {
     this.selectedDate = dateKey(today.getFullYear(), today.getMonth(), today.getDate());
     // Subscribe lazy-fallback (boot already does it; this is for the very first session)
     if (state.uid && !this.unsub) this.subscribe();
+    haptic(8);
   },
   subscribe() {
     if (!state.uid || this.unsub) return;
@@ -6432,6 +6493,7 @@ let state = {
   pendingDangerAction: null,      // { kind, payload } waiting explicit yes/no
   commandAliases: JSON.parse(localStorage.getItem("teto-aliases") || "{}"), // {alias: canonical}
   responseStyle: localStorage.getItem("teto-response-style") || "normal",    // short|normal|detailed
+  globalSearch: "",
   intentStats: {                  // lightweight local metrics (#efficiency)
     total: 0,
     clarified: 0,
@@ -6997,6 +7059,42 @@ function speakTask(id) {
 }
 
 /* ─── Render ─── */
+function computeStreak() {
+  try {
+    const KEY = "teto_streak";
+    const data = JSON.parse(localStorage.getItem(KEY) || '{"days":0,"last":null}');
+    const todayStr = new Date().toISOString().slice(0,10);
+    if (data.last === todayStr) return data.days;
+    const yesterday = new Date(Date.now()-86400000).toISOString().slice(0,10);
+    const newDays = data.last === yesterday
+      ? data.days + 1
+      : (state.tasks.some(t => t.done && new Date(t.ts).toISOString().slice(0,10) === todayStr) ? 1 : 0);
+    if (newDays > 0) localStorage.setItem(KEY, JSON.stringify({days:newDays, last:todayStr}));
+    return newDays;
+  } catch(e) { return 0; }
+}
+
+function globalSearchResults() {
+  const q = (state.globalSearch || "").toLowerCase().trim();
+  if (!q || q.length < 2) return null;
+  const tasks = state.tasks.filter(t =>
+    t.text.toLowerCase().includes(q) || (t.note||"").toLowerCase().includes(q));
+  const listItems = [];
+  for (const l of Lists.lists) {
+    const its = (Lists.items[l.id]||[]).filter(i => i.text.toLowerCase().includes(q));
+    if (its.length) listItems.push({ list: l, items: its });
+  }
+  const events = [];
+  for (const arr of Object.values(Calendar.events || {})) {
+    for (const e of arr) {
+      if ((e.title||"").toLowerCase().includes(q) || (e.note||"").toLowerCase().includes(q))
+        events.push(e);
+    }
+  }
+  const total = tasks.length + events.length + listItems.reduce((a,x) => a + x.items.length, 0);
+  return { tasks, events, listItems, total, q };
+}
+
 function render() {
   const s = state;
   const filtered = s.tasks.filter(t => {
@@ -7150,6 +7248,9 @@ function render() {
             <div class="mini-cal-day">${new Date().getDate()}</div>
           </button>
           <button class="mini-lists-btn" onclick="Lists.open();render()" title="Note e liste">📝</button>
+          <button class="search-toggle-btn ${s.globalSearch?'on':''}"
+            onclick="const si=document.querySelector('.global-search-input');if(si){si.focus()}else{state.globalSearch=' ';render();setTimeout(()=>{const i=document.querySelector('.global-search-input');if(i){i.value='';state.globalSearch='';i.focus();}},60)}"
+            title="Cerca ovunque">🔍</button>
           <button class="settings-btn" onclick="state.showSettings=!state.showSettings;render()" title="Impostazioni">${ICONS.settings}</button>
         </div>
       </div>
@@ -7162,6 +7263,7 @@ function render() {
         <div class="hero-stats">
           <span class="hero-stat">${progress.total > 0 ? `✓ ${progress.done}/${progress.total} oggi` : "💤 Niente per oggi"}</span>
           ${done > 0 ? `<span class="hero-stat fire">🔥 ${done} completat${done===1?"a":"e"}</span>` : ""}
+          ${(()=>{const k=computeStreak();return k>1?`<span class="hero-stat" style="background:rgba(255,184,77,.18);color:#a35500;border-color:rgba(255,184,77,.3)">⚡ ${k} giorni di fila</span>`:""})()}
         </div>
       </div>
       <div class="hero-ring" aria-label="Progresso di oggi: ${progress.pct}%">
@@ -7356,6 +7458,14 @@ ${!window.tetoAI ? \`<div class="settings-row" style="flex-direction:column;alig
           onkeydown="if(event.key==='Enter')addTask()">
         <button class="send-btn" onclick="addTask()">${ICONS.send}</button>
       </div>
+      ${(()=>{
+        const v = s.input.toLowerCase();
+        const lm = Lists.lists.find(l=>v.includes(l.name.toLowerCase())&&/aggiungi|metti|inserisci/i.test(v));
+        if (lm) return `<div class="smart-hint">📝 Aggiungo a <strong>${lm.emoji} ${esc(lm.name)}</strong> — premi invio~</div>`;
+        if (GeminiAgent.enabled&&(window.tetoAI||GeminiAgent.apiKey)&&s.input.length>4)
+          return `<div class="smart-hint">✨ Gemini attivo — puoi scrivere in modo naturale</div>`;
+        return "";
+      })()}
       <div class="cat-row">
         ${CATS.map(c=>`<button class="cat-btn ${s.cat===c.id?"on":"off"}" onclick="state.cat='${c.id}';render()">${c.emoji} ${c.label}</button>`).join("")}
         <div style="flex:1"></div>
@@ -7380,6 +7490,25 @@ ${!window.tetoAI ? \`<div class="settings-row" style="flex-direction:column;alig
         </div>
       </div>` : ""}
     </div>
+
+    ${(()=>{
+      const sr = state.globalSearch.length >= 2 ? globalSearchResults() : null;
+      const showBar = state.globalSearch !== undefined;
+      if (!showBar) return "";
+      return `<div class="global-search-bar">
+        <input type="search" class="global-search-input"
+          placeholder="🔍 Cerca task, eventi, liste..."
+          value="${esc(state.globalSearch||'')}"
+          oninput="state.globalSearch=this.value;render()"
+          onkeydown="if(event.key==='Escape'){state.globalSearch='';render()}">
+        ${state.globalSearch?'<button class="gs-clear" onclick="state.globalSearch=\'\';render()">✕</button>':''}
+      </div>
+      ${sr ? (sr.total>0 ? \`<div class="search-results">
+        \${sr.tasks.length?'<div class="sr-section">📝 Task ('+sr.tasks.length+')</div>'+sr.tasks.map(t=>'<div class="sr-item" onclick="state.globalSearch=\'\';state.expanded=\''+t.id+'\';render()">'+esc(t.text)+' <span class="sr-cat">'+t.category+'</span></div>').join(''):''}
+        \${sr.events.length?'<div class="sr-section">📅 Eventi ('+sr.events.length+')</div>'+sr.events.map(e=>'<div class="sr-item" onclick="state.globalSearch=\'\';Calendar.open();renderCalendarOnly()">'+esc(e.title)+' <span class="sr-cat">'+e.date+'</span></div>').join(''):''}
+        \${sr.listItems.length?'<div class="sr-section">🗒️ Liste</div>'+sr.listItems.map(g=>g.items.map(i=>'<div class="sr-item" onclick="state.globalSearch=\'\';Lists.open(\''+g.list.id+'\');render()">'+esc(i.text)+' <span class="sr-cat">'+g.list.emoji+' '+esc(g.list.name)+'</span></div>').join('')).join(''):''}
+      </div>\` : '<div class="sr-empty">Nessun risultato per &ldquo;'+esc(sr.q)+'&rdquo;</div>') : ''}`;
+    })()}
 
     <div class="filter-row">
       <button class="filter-btn ${s.filter==="all"?"on":""}" onclick="state.filter='all';render()">Tutte</button>
@@ -8164,18 +8293,29 @@ function renderFocusMode() {
   // Find next reminder (active task with closest reminderAt in the future, or earliest overdue)
   const nowTs = Date.now();
   const reminders = state.tasks.filter(t => !t.done && t.reminderAt).sort((a,b) => a.reminderAt - b.reminderAt);
-  const nextRem = reminders.find(t => t.reminderAt >= nowTs) || reminders[0];
-  let nextHTML = '<div class="focus-empty">Nessun reminder in coda~ ♪</div>';
+  const nextRem   = reminders.find(t => t.reminderAt >= nowTs) || reminders[0];
+  const fKey      = dateKey(now.getFullYear(), now.getMonth(), now.getDate());
+  const fEvts     = Calendar.eventsOnDay(fKey)
+    .filter(e => !e.allDay && e.time)
+    .filter(e => { const [eh,em]=(e.time||"00:00").split(":").map(Number); return eh*60+em >= now.getHours()*60+now.getMinutes(); })
+    .slice(0,2);
+  const focusItems = [];
+  fEvts.forEach(e => focusItems.push(`<div class="focus-next">
+    <div class="focus-next-label">📅 evento</div>
+    <div class="focus-next-text">${esc(e.title)}</div>
+    <div class="focus-next-time">alle ${e.time}</div>
+  </div>`));
   if (nextRem) {
     const d = new Date(nextRem.reminderAt);
     const overdue = nextRem.reminderAt < nowTs;
-    const timeStr = d.toLocaleString("it-IT", { weekday: "short", hour: "2-digit", minute: "2-digit" });
-    nextHTML = `<div class="focus-next ${overdue?'overdue':''}">
-      <div class="focus-next-label">${overdue?"⚠️ in ritardo":"prossimo"}</div>
+    const timeStr = d.toLocaleString("it-IT",{weekday:"short",hour:"2-digit",minute:"2-digit"});
+    focusItems.push(`<div class="focus-next ${overdue?'overdue':''}">
+      <div class="focus-next-label">${overdue?"⚠️ scaduto":"📝 task"}</div>
       <div class="focus-next-text">${esc(nextRem.text)}</div>
       <div class="focus-next-time">${timeStr}</div>
-    </div>`;
+    </div>`);
   }
+  const nextHTML = focusItems.length ? focusItems.join("") : '<div class="focus-empty">Nessun impegno in coda~ ♪</div>';
 
   return `<div class="focus-overlay">
     <button class="focus-exit" onclick="Focus.exit()" title="Esci">×</button>
