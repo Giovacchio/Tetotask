@@ -1,4 +1,4 @@
-const CACHE_NAME = "tetotask-v6";
+const CACHE_NAME = "tetotask-v7";
 const ASSETS = [
   "./",
   "./index.html",
@@ -9,55 +9,76 @@ const ASSETS = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS).catch(err => {
-        console.log('Service Worker: Cache addAll failed:', err);
-        // Prova a cacheare i file essenziali uno per uno
-        return Promise.allSettled(ASSETS.map(asset => {
-          return cache.add(asset).catch(e => {
-            console.log('Failed to cache:', asset, e);
-            return null;
-          });
-        }));
-      });
-    })
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.allSettled(ASSETS.map((a) => cache.add(a)))
+    )
   );
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((key) => key !== CACHE_NAME)
-          .map((key) => caches.delete(key))
-      )
-    )
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
+// Solo queste origini esterne vengono messe in cache (SDK Firebase e font)
+const CACHEABLE_EXTERNAL = ["www.gstatic.com", "fonts.googleapis.com", "fonts.gstatic.com"];
 
-  // Evita di mettere in cache le chiamate alle API di Google/Gemini
-  if (event.request.url.includes("googleapis.com")) {
-    return event.respondWith(fetch(event.request));
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
+  if (req.method !== "GET") return;
+  const url = new URL(req.url);
+  const sameOrigin = url.origin === self.location.origin;
+
+  // API (Firestore, Auth, Gemini, meteo...): sempre rete, mai cache
+  if (!sameOrigin && !CACHEABLE_EXTERNAL.includes(url.hostname)) return;
+
+  // Pagina dell'app: prima la rete (così vedi subito l'ultima versione),
+  // la cache solo se sei offline.
+  if (req.mode === "navigate" || (sameOrigin && url.pathname.endsWith("/index.html"))) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then((c) => c.put("./index.html", copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match("./index.html").then((r) => r || caches.match("./")))
+    );
+    return;
   }
 
+  // Altri file: cache subito + aggiornamento in background
   event.respondWith(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.match(event.request).then((cached) => {
-        const networked = fetch(event.request)
-          .then((response) => {
-            cache.put(event.request, response.clone());
-            return response;
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.match(req).then((cached) => {
+        const network = fetch(req)
+          .then((res) => {
+            if (res && (res.ok || res.type === "opaque")) cache.put(req, res.clone());
+            return res;
           })
-          .catch(() => cached); // Se sei offline, usa la cache
-        
-        return cached || networked; // Se hai la cache mostrala subito, altrimenti aspetta la rete
-      });
+          .catch(() => cached);
+        return cached || network;
+      })
+    )
+  );
+});
+
+// Tocco sulla notifica: riapre (o porta in primo piano) TetoTask
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || self.registration.scope;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      for (const w of wins) {
+        if (w.url.startsWith(self.registration.scope) && "focus" in w) return w.focus();
+      }
+      return self.clients.openWindow(target);
     })
   );
 });
