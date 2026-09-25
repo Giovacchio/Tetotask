@@ -1319,6 +1319,21 @@ textarea.cal-form-input { resize: vertical; min-height: 60px; }
   border-left:3px solid var(--red); animation:fadeUp .2s ease;
 }
 .smart-hint strong { color:var(--red); }
+#smartHint:empty { display:none; }
+
+/* ─── Rimanda promemoria (task espanso) ─── */
+.snooze-row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:2px 0 10px; }
+.snooze-label { font-size:.74rem; font-weight:800; color:var(--deep); margin-right:2px; }
+.snooze-row .preset-chip { padding:6px 11px; min-height:34px; font-size:.74rem; }
+[data-theme="dark"] .snooze-row .preset-chip { background:rgba(255,107,142,.1); color:var(--dark); }
+
+/* ─── Completate: mostra altre ─── */
+.show-more-done {
+  display:block; width:100%; margin:4px 0 8px; padding:10px; border-radius:12px;
+  background:transparent; border:1.5px dashed var(--card-border);
+  color:var(--muted); font-weight:700; font-size:.8rem; font-family:inherit; min-height:40px;
+}
+.show-more-done:active { transform:scale(.98); }
 
 /* ─── GLOBAL SEARCH ─── */
 .global-search-bar {
@@ -3076,7 +3091,7 @@ Personalità: simpatica, usa ~ e ♪, ama il pane 🍞, diretta, risponde SEMPRE
 "suggestion": proposta proattiva opzionale (es. "Vuoi che pianifichi anche domani?"). Solo se aggiunge valore.
 
 ━━━ CONTESTO APP ━━━
-Ora: ${hh}:${mm} — ${today}
+Ora: ${hh}:${mm} — ${today} ${now.getFullYear()} (oggi = ${todayKey}, fuso Europe/Rome)
 Utente: ${userName||"anonimo"}
 Vista: calendario=${Calendar.open_}, liste=${Lists.open_}, filtro=${state.filter}
 Task attivi: ${activeTasks.length} (${overdue.length} scaduti, ${todayTasks.length} oggi)
@@ -3088,7 +3103,7 @@ ${memory ? `\nMemoria utente:\n${memory}` : ""}
 
 ━━━ AZIONI DISPONIBILI ━━━
 TASK:
-{"type":"add_task","text":"...","category":"personale|lavoro|urgente","reminderAt":"ISO8601|null","note":"..."}
+{"type":"add_task","text":"...","category":"personale|lavoro|urgente","reminderAt":"ISO8601|null","repeat":"none|daily|weekly|monthly","note":"..."}
 {"type":"complete_task","query":"testo parziale o id"}
 {"type":"complete_multiple","category":"personale|lavoro|urgente|all"}
 {"type":"delete_task","query":"testo parziale o id"}
@@ -3139,7 +3154,12 @@ UTILITÀ:
 5. "tutti/ogni/tutte le" → usa azioni bulk
 6. Combina azioni (max 5 per volta)
 7. Solo JSON — zero testo fuori dal JSON
-8. Per richieste ambigue scegli l'interpretazione più utile`;
+8. Per richieste ambigue scegli l'interpretazione più utile
+9. ORARI: "alle 3/4/5/6" senza altro = pomeriggio (15-18). "alle 8/9/10/11" detto quando quell'ora di mattina è già passata = sera. "stasera alle 9" = 21:00. Solo data senza ora = 09:00. "oggi" senza ora = 18:00.
+10. Nel "text" del task togli SOLO l'espressione di tempo e le parole di comando ("ricordami di"): mantieni articoli e preposizioni ("pagare la rata", non "pagare rata"). Prima lettera maiuscola.
+11. "ogni sera/giorno/lunedì/mese", "tutti i giorni" → add_task con "repeat" e "reminderAt" = prima occorrenza futura.
+12. TASK = cosa da fare (comprare, chiamare, pagare...). EVENTO = impegno a un'ora precisa con qualcuno o in un posto (dentista, cena, riunione, esame).
+13. Più cose da aggiungere a una lista ("latte, pane e uova") → bulk_add_list con una voce per elemento.`;
   },
 
   extractJSON(raw) {
@@ -3262,17 +3282,25 @@ UTILITÀ:
     switch (action.type) {
 
       case "add_task": {
-        await addTaskToDb({
-          id:genId(), text:action.text, category:action.category||state.cat,
+        const rAt = action.reminderAt ? new Date(action.reminderAt).getTime() : null;
+        const task = {
+          id:genId(), text:capFirst(action.text), category:["personale","lavoro","urgente"].includes(action.category) ? action.category : state.cat,
           note:action.note||"", done:false, ts:Date.now(),
-          reminderAt: action.reminderAt ? new Date(action.reminderAt).getTime() : null,
-        });
+          reminderAt: Number.isFinite(rAt) ? rAt : null,
+        };
+        if (task.reminderAt && ["daily","weekly","monthly"].includes(action.repeat)) {
+          const d0 = new Date(task.reminderAt);
+          task.repeat = action.repeat;
+          task.repeatAt = `${String(d0.getHours()).padStart(2,"0")}:${String(d0.getMinutes()).padStart(2,"0")}`;
+        }
+        await addTaskToDb(task);
+        if (task.reminderAt) requestNotifPermission();
         haptic(12); break;
       }
       case "complete_task": {
         const q = (action.query||"").toLowerCase();
-        const m = state.tasks.find(t=>!t.done&&(t.id===action.query||t.text.toLowerCase().includes(q)));
-        if (m) { await updateTaskInDb(m.id,{done:true}); haptic(20); } break;
+        const m = state.tasks.find(t=>!t.done&&(t.id===action.query||t.text.toLowerCase().includes(q))) || findTaskFuzzy(q);
+        if (m) { await completeTaskSmart(m); haptic(20); } break;
       }
       case "complete_multiple": {
         const cat = action.category;
@@ -3939,336 +3967,307 @@ function guessListEmoji(name) {
  * Returns { timestamp: ms, matched: "string matched", cleaned: "text without date" }
  * or null if no date found.
  */
-function parseDateTime(text) {
-  const now = new Date();
-  let ts = null;
-  let matched = "";
-  let cleaned = text;
-
-  // Helper to build timestamp
-  const buildDate = (daysAdd, hour, min) => {
-    const d = new Date();
-    d.setDate(d.getDate() + daysAdd);
-    d.setHours(hour != null ? hour : 9, min || 0, 0, 0);
-    return d.getTime();
-  };
-
-  // ─── SPECIAL WORDS: mezzogiorno / mezzanotte ───
-  let hour = null, min = 0;
-  if (/\bmezzogiorno\b/i.test(text)) {
-    hour = 12; min = 0;
-    const mm = text.match(/\bmezzogiorno\b/i);
-    matched = mm[0];
-    cleaned = cleaned.replace(mm[0], "").trim();
-  } else if (/\bmezzanotte\b/i.test(text)) {
-    hour = 0; min = 0;
-    const mm = text.match(/\bmezzanotte\b/i);
-    matched = mm[0];
-    cleaned = cleaned.replace(mm[0], "").trim();
-  }
-
-  // ─── TIME: "alle X e mezza/mezzo" ───
-  if (hour === null) {
-    const halfMatch = text.match(/\balle?\s+(\d{1,2})\s+e\s+mezz[ao]\b/i);
-    if (halfMatch) {
-      hour = parseInt(halfMatch[1]); min = 30;
-      matched = halfMatch[0];
-      cleaned = cleaned.replace(halfMatch[0], "").trim();
+/* ═══════════════════════════════════════════════════════════════
+   📅 DATE/ORA IN ITALIANO — parser v2
+   Riconosce: orari (alle 15, alle 3 e mezza, verso le 17, ore 15:30,
+   all'una, a mezzogiorno, 15:30), parti del giorno (stasera, domattina,
+   sabato sera), giorni (oggi, domani, lunedì prossimo, lunedì 28),
+   date (3 ottobre, il primo ottobre, 1° ottobre, 3/10, il 5, a gennaio),
+   durate (tra 10 minuti, fra tre ore, tra un quarto d'ora, tra 2 settimane,
+   tra un mese), periodi (la settimana prossima, il mese prossimo,
+   nel weekend, a fine mese). Numeri anche in lettere.
+   Dal testo toglie SOLO l'espressione di tempo (gli articoli restano).
+   ═══════════════════════════════════════════════════════════════ */
+const IT_NUM_WORDS = (() => {
+  const w = { zero:0, un:1, uno:1, una:1, "un'":1, due:2, tre:3, "tré":3, quattro:4, cinque:5,
+    sei:6, sette:7, otto:8, nove:9, dieci:10, undici:11, dodici:12, tredici:13,
+    quattordici:14, quindici:15, sedici:16, diciassette:17, diciotto:18, diciannove:19,
+    venti:20, trenta:30, quaranta:40, cinquanta:50, sessanta:60 };
+  const tens = { venti:20, trenta:30, quaranta:40, cinquanta:50 };
+  const units = { uno:1, due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9 };
+  for (const [tw, tv] of Object.entries(tens)) {
+    for (const [uw, uv] of Object.entries(units)) {
+      const stem = (uw === "uno" || uw === "otto") ? tw.slice(0, -1) : tw;   // ventuno, ventotto
+      w[stem + uw] = tv + uv;
+      if (uw === "tre") w[stem + "tré"] = tv + 3;
     }
   }
-
-  // ─── TIME: "alle X e un quarto" / "alle X e tre quarti" ───
-  if (hour === null) {
-    const quarterMatch = text.match(/\balle?\s+(\d{1,2})\s+e\s+un\s+quarto\b/i);
-    if (quarterMatch) {
-      hour = parseInt(quarterMatch[1]); min = 15;
-      matched = quarterMatch[0];
-      cleaned = cleaned.replace(quarterMatch[0], "").trim();
-    }
-  }
-  if (hour === null) {
-    const threeQMatch = text.match(/\balle?\s+(\d{1,2})\s+e\s+tre\s+quarti\b/i);
-    if (threeQMatch) {
-      hour = parseInt(threeQMatch[1]); min = 45;
-      matched = threeQMatch[0];
-      cleaned = cleaned.replace(threeQMatch[0], "").trim();
-    }
-  }
-
-  // ─── TIME: "alle X meno un quarto" ───
-  if (hour === null) {
-    const lessQMatch = text.match(/\balle?\s+(\d{1,2})\s+meno\s+un\s+quarto\b/i);
-    if (lessQMatch) {
-      hour = parseInt(lessQMatch[1]) - 1; if (hour < 0) hour = 23;
-      min = 45;
-      matched = lessQMatch[0];
-      cleaned = cleaned.replace(lessQMatch[0], "").trim();
-    }
-  }
-
-  // ─── TIME: "alle X:MM" / "alle X e MM" / "alle X.MM" ───
-  if (hour === null) {
-    const timeMatch = text.match(/\balle?\s+(\d{1,2})(?:[:\.e\s]+(\d{1,2}))?\b(?!\s*(?:e\s+mezz|e\s+un\s+quarto|meno))/i);
-    if (timeMatch) {
-      hour = parseInt(timeMatch[1]);
-      min = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
-      matched = timeMatch[0];
-      cleaned = cleaned.replace(timeMatch[0], "").trim();
-    }
-  }
-
-  // ─── TIME: word-number hours — "alle otto", "alle venti", "alle nove e mezza"
-  if (hour === null) {
-    const hourWords = {
-      "una":1,"due":2,"tre":3,"quattro":4,"cinque":5,"sei":6,"sette":7,"otto":8,
-      "nove":9,"dieci":10,"undici":11,"dodici":12,"tredici":13,"quattordici":14,
-      "quindici":15,"sedici":16,"diciassette":17,"diciotto":18,"diciannove":19,
-      "venti":20,"ventuno":21,"ventidue":22,"ventitre":23,
-    };
-    const wordList = Object.keys(hourWords).sort((a,b)=>b.length-a.length).join("|");
-    // "alle otto e mezza" / "alle nove e un quarto" / "alle sette"
-    let wordMatch = text.match(new RegExp(`\\balle?\\s+(${wordList})(?:\\s+e\\s+(mezz[ao]|un\\s+quarto|tre\\s+quarti|\\d{1,2}))?`, "i"));
-    if (wordMatch) {
-      hour = hourWords[wordMatch[1].toLowerCase()];
-      if (wordMatch[2]) {
-        const mod = wordMatch[2].toLowerCase();
-        if (/^mezz/.test(mod)) min = 30;
-        else if (/un\s+quarto/.test(mod)) min = 15;
-        else if (/tre\s+quarti/.test(mod)) min = 45;
-        else min = parseInt(mod);
-      }
-      matched = wordMatch[0];
-      cleaned = cleaned.replace(wordMatch[0], "").trim();
-    }
-  }
-
-  // ─── "alle X meno un quarto" with word numbers
-  if (hour === null) {
-    const hourWords = {"una":1,"due":2,"tre":3,"quattro":4,"cinque":5,"sei":6,"sette":7,"otto":8,"nove":9,"dieci":10,"undici":11,"dodici":12};
-    const wordList = Object.keys(hourWords).sort((a,b)=>b.length-a.length).join("|");
-    const lessQ = text.match(new RegExp(`\\balle?\\s+(${wordList})\\s+meno\\s+un\\s+quarto`, "i"));
-    if (lessQ) {
-      hour = hourWords[lessQ[1].toLowerCase()] - 1; if (hour < 0) hour = 23;
-      min = 45;
-      matched = lessQ[0];
-      cleaned = cleaned.replace(lessQ[0], "").trim();
-    }
-  }
-
-  // ─── TIME: "all'una" (exception for vowel elision) ───
-  if (hour === null && /\ball'?una\b/i.test(text)) {
-    hour = 13; min = 0;  // default to afternoon
-    const mm = text.match(/\ball'?una\b/i);
-    matched = mm[0];
-    cleaned = cleaned.replace(mm[0], "").trim();
-  }
-
-  // ─── AM/PM CUES: "di mattina", "del pomeriggio", "di sera", "di notte" ───
-  if (hour !== null) {
-    if (/\b(?:del|di)\s+mattin[ao]\b/i.test(text)) {
-      if (hour >= 1 && hour <= 11) { /* keep */ }
-      const mm = text.match(/\b(?:del|di)\s+mattin[ao]\b/i);
-      cleaned = cleaned.replace(mm[0], "").trim();
-    } else if (/\b(?:del|di|al)\s+pomeriggio\b/i.test(text)) {
-      if (hour >= 1 && hour <= 7) hour += 12;  // 3 del pomeriggio → 15
-      const mm = text.match(/\b(?:del|di|al)\s+pomeriggio\b/i);
-      cleaned = cleaned.replace(mm[0], "").trim();
-    } else if (/\b(?:di|della)\s+sera\b/i.test(text)) {
-      if (hour >= 1 && hour <= 11) hour += 12;  // 8 di sera → 20
-      const mm = text.match(/\b(?:di|della)\s+sera\b/i);
-      cleaned = cleaned.replace(mm[0], "").trim();
-    } else if (/\b(?:di|della)\s+notte\b/i.test(text)) {
-      if (hour >= 1 && hour <= 5) { /* keep as AM */ }
-      const mm = text.match(/\b(?:di|della)\s+notte\b/i);
-      cleaned = cleaned.replace(mm[0], "").trim();
-    }
-  }
-
-  // Relative days
-  const dayPatterns = [
-    { rx: /\boggi\b/i,           days: 0 },
-    { rx: /\bstasera\b/i,        days: 0, defaultHour: 20 },
-    { rx: /\bstamattina\b/i,     days: 0, defaultHour: 9 },
-    { rx: /\bstanotte\b/i,       days: 0, defaultHour: 23 },
-    { rx: /\bquesta\s+notte\b/i, days: 0, defaultHour: 23 },
-    { rx: /\bquesta\s+sera\b/i,  days: 0, defaultHour: 20 },
-    { rx: /\bpomeriggio\b/i,     days: 0, defaultHour: 15 },
-    { rx: /\bdomani\s+mattina\b/i, days: 1, defaultHour: 9 },
-    { rx: /\bdomani\s+sera\b/i,    days: 1, defaultHour: 20 },
-    { rx: /\bdomani\s+pomeriggio\b/i, days: 1, defaultHour: 15 },
-    { rx: /\bdomani\s+notte\b/i, days: 1, defaultHour: 23 },
-    { rx: /\bdomani\b/i,         days: 1 },
-    { rx: /\bdopodomani\b/i,     days: 2 },
-    { rx: /\b(?:tra|fra|in)\s+(\d+)\s+giorn[io]\b/i, days: "N" },
-    { rx: /\b(?:tra|fra|in)\s+(\d+)\s+or[ae]\b/i, hoursAdd: "N" },
-    { rx: /\b(?:tra|fra|in)\s+(\d+)\s+minut[oi]\b/i, minAdd: "N" },
-    { rx: /\b(?:tra|fra)\s+mezz'?\s*ora\b/i, minAdd: 30 },
-    { rx: /\b(?:tra|fra)\s+un'?\s*ora\b/i, hoursAdd: 1 },
-    { rx: /\b(?:tra|fra)\s+due\s+or[ae]\b/i, hoursAdd: 2 },
-    { rx: /\b(?:tra|fra)\s+un\s+minuto\b/i, minAdd: 1 },
-    { rx: /\b(?:tra|fra)\s+poco\b/i, minAdd: 30 },
-    { rx: /\b(?:la\s+)?prossima\s+settimana\b/i, days: 7 },
-    { rx: /\btra\s+una\s+settimana\b/i, days: 7 },
-    // Weekend / fine settimana → next Saturday
-    { rx: /\b(?:nel\s+)?(?:weekend|week\s*end|fine\s+settimana|weekend)\b/i, weekend: true },
-    { rx: /\ba\s+fine\s+settimana\b/i, weekend: true },
-    // Inizio/fine mese
-    { rx: /\b(?:il\s+)?primo\s+del\s+mese\b/i, firstOfMonth: true, defaultHour: 9 },
-    { rx: /\ba\s+fine\s+mese\b/i, lastOfMonth: true, defaultHour: 9 },
-    { rx: /\ba\s+inizio\s+mese\b/i, firstOfMonth: true, defaultHour: 9 },
-  ];
-  for (const p of dayPatterns) {
-    const m = text.match(p.rx);
-    if (m) {
-      if (p.hoursAdd === "N") {
-        ts = Date.now() + parseInt(m[1]) * 3600 * 1000;
-      } else if (typeof p.hoursAdd === "number") {
-        ts = Date.now() + p.hoursAdd * 3600 * 1000;
-      } else if (p.minAdd === "N") {
-        ts = Date.now() + parseInt(m[1]) * 60 * 1000;
-      } else if (typeof p.minAdd === "number") {
-        ts = Date.now() + p.minAdd * 60 * 1000;
-      } else if (p.weekend) {
-        // Next Saturday (or Sunday if today is Saturday)
-        const currentDay = now.getDay();  // 0=Sun, 6=Sat
-        let daysAhead = (6 - currentDay + 7) % 7;
-        if (daysAhead === 0) daysAhead = 6;  // Today Sat → next Sat
-        ts = buildDate(daysAhead, hour !== null ? hour : (p.defaultHour || 19), min);
-      } else if (p.firstOfMonth) {
-        const d = new Date(now.getFullYear(), now.getMonth(), 1, hour !== null ? hour : (p.defaultHour || 9), min, 0, 0);
-        if (d.getTime() < now.getTime()) d.setMonth(d.getMonth() + 1);
-        ts = d.getTime();
-      } else if (p.lastOfMonth) {
-        const d = new Date(now.getFullYear(), now.getMonth() + 1, 0, hour !== null ? hour : (p.defaultHour || 9), min, 0, 0);
-        if (d.getTime() < now.getTime()) d = new Date(now.getFullYear(), now.getMonth() + 2, 0, hour !== null ? hour : 9, min, 0, 0);
-        ts = d.getTime();
-      } else {
-        const days = p.days === "N" ? parseInt(m[1]) : p.days;
-        ts = buildDate(days, hour !== null ? hour : p.defaultHour, min);
-      }
-      matched = matched ? matched + " " + m[0] : m[0];
-      cleaned = cleaned.replace(m[0], "").trim();
-      break;
-    }
-  }
-
-  // Day names (lunedì, martedì, ...)
-  // Use space/punct boundaries instead of \b because \b doesn't work around
-  // non-ASCII chars like ì — regex /\bvenerdì\b/ would fail in Italian.
-  if (!ts) {
-    const dayNames = ["domenica","lunedì","martedì","mercoledì","giovedì","venerdì","sabato"];
-    const shortNames = ["domenica","lunedi","martedi","mercoledi","giovedi","venerdi","sabato"];
-    const padded = " " + text.toLowerCase() + " ";
-    for (let i = 0; i < 7; i++) {
-      const rx = new RegExp(`(?:^|[\\s,.!?])(?:(?:il|di|questo|prossimo)\\s+)?(${dayNames[i]}|${shortNames[i]})(?:\\s+prossim[oa])?(?=[\\s,.!?]|$)`, "i");
-      const m = padded.match(rx);
-      if (m) {
-        const currentDay = now.getDay();
-        let daysAhead = (i - currentDay + 7) % 7;
-        if (daysAhead === 0) daysAhead = 7;
-        ts = buildDate(daysAhead, hour !== null ? hour : 9, min);
-        const captured = m[1];
-        matched = matched ? matched + " " + captured : captured;
-        // Remove only the day-name token from the cleaned text (preserve prefixes)
-        cleaned = cleaned.replace(new RegExp(`(?:(?:questo|prossimo)\\s+)?${captured}(?:\\s+prossim[oa])?`, "i"), "").replace(/\s{2,}/g, " ").trim();
-        break;
-      }
-    }
-  }
-
-  // Explicit date: "22 dicembre", "il 22 dicembre", "22 dicembre 2026",
-  //                "dicembre 22", "22/12", "22-12", "22/12/2026"
-  if (!ts) {
-    const months = {
-      gennaio:0, gen:0,
-      febbraio:1, feb:1,
-      marzo:2, mar:2,
-      aprile:3, apr:3,
-      maggio:4, mag:4,
-      giugno:5, giu:5,
-      luglio:6, lug:6,
-      agosto:7, ago:7,
-      settembre:8, set:8, sett:8,
-      ottobre:9, ott:9,
-      novembre:10, nov:10,
-      dicembre:11, dic:11,
-    };
-    const monthNames = Object.keys(months).join("|");
-
-    // "22 dicembre" or "il 22 dicembre" or "22 dicembre 2026"
-    let dm;
-    let rx1 = new RegExp(`\\b(?:il\\s+|l'\\s*)?(\\d{1,2})\\s+(${monthNames})(?:\\s+(\\d{4}))?\\b`, "i");
-    if ((dm = text.match(rx1))) {
-      const day = parseInt(dm[1]);
-      const monthIdx = months[dm[2].toLowerCase()];
-      const year = dm[3] ? parseInt(dm[3]) : now.getFullYear();
-      if (day >= 1 && day <= 31) {
-        const d = new Date(year, monthIdx, day, hour !== null ? hour : 9, min || 0, 0, 0);
-        // If year not specified and the date is in the past, roll to next year
-        if (!dm[3] && d.getTime() < now.getTime() - 12*3600*1000) {
-          d.setFullYear(year + 1);
-        }
-        ts = d.getTime();
-        matched = matched ? matched + " " + dm[0] : dm[0];
-        cleaned = cleaned.replace(dm[0], "").trim();
-      }
-    }
-    // Numeric "22/12" or "22-12" or "22/12/2026"
-    if (!ts) {
-      let rx2 = /\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/;
-      if ((dm = text.match(rx2))) {
-        const day = parseInt(dm[1]);
-        const monthIdx = parseInt(dm[2]) - 1;
-        let year = dm[3] ? parseInt(dm[3]) : now.getFullYear();
-        if (year < 100) year += 2000;
-        if (day >= 1 && day <= 31 && monthIdx >= 0 && monthIdx <= 11) {
-          const d = new Date(year, monthIdx, day, hour !== null ? hour : 9, min || 0, 0, 0);
-          if (!dm[3] && d.getTime() < now.getTime() - 12*3600*1000) {
-            d.setFullYear(year + 1);
-          }
-          ts = d.getTime();
-          matched = matched ? matched + " " + dm[0] : dm[0];
-          cleaned = cleaned.replace(dm[0], "").trim();
-        }
-      }
-    }
-  }
-
-  // "il 25" / "giorno 25" — lone day number, no month → next occurrence
-  // Only trigger when prefixed with "il" / "giorno" / "l'" to avoid matching
-  // random digits in task text (e.g. "compra 5 mele").
-  if (!ts) {
-    const dm3 = text.match(/\b(?:il|giorno|l')\s+(\d{1,2})(?![\d\/\-])\b/i);
-    if (dm3) {
-      const day = parseInt(dm3[1]);
-      if (day >= 1 && day <= 31) {
-        let d = new Date(now.getFullYear(), now.getMonth(), day, hour !== null ? hour : 9, min || 0, 0, 0);
-        if (d.getTime() < now.getTime() - 12*3600*1000) {
-          d = new Date(now.getFullYear(), now.getMonth() + 1, day, hour !== null ? hour : 9, min || 0, 0, 0);
-        }
-        ts = d.getTime();
-        matched = matched ? matched + " " + dm3[0] : dm3[0];
-        cleaned = cleaned.replace(dm3[0], "").trim();
-      }
-    }
-  }
-
-  // If only time mentioned (no day), assume today (or tomorrow if past)
-  if (!ts && hour !== null) {
-    const d = new Date();
-    d.setHours(hour, min, 0, 0);
-    if (d.getTime() < Date.now()) d.setDate(d.getDate() + 1);
-    ts = d.getTime();
-  }
-
-  // Clean up stray words
-  cleaned = cleaned.replace(/\b(alle|all'|ore|per|il|la|di|giorno|nel|del)\b/gi, " ")
-                   .replace(/\s+/g, " ").trim();
-  // Strip leading/trailing punctuation
-  cleaned = cleaned.replace(/^[,.\s]+|[,.\s]+$/g, "");
-
-  return ts ? { timestamp: ts, matched, cleaned } : null;
+  return w;
+})();
+const IT_MONTHS = { gennaio:0, gen:0, febbraio:1, feb:1, marzo:2, mar:2, aprile:3, apr:3,
+  maggio:4, mag:4, giugno:5, giu:5, luglio:6, lug:6, agosto:7, ago:7, settembre:8, sett:8, set:8,
+  ottobre:9, ott:9, novembre:10, nov:10, dicembre:11, dic:11 };
+const IT_WEEKDAYS = [["domenica"],["lunedì","lunedi","lunedí"],["martedì","martedi","martedí"],
+  ["mercoledì","mercoledi","mercoledí"],["giovedì","giovedi","giovedí"],["venerdì","venerdi","venerdí"],["sabato"]];
+const _DT = (() => {
+  const L = "(?<![\\p{L}\\d'])", R = "(?![\\p{L}\\d])";
+  const numWords = Object.keys(IT_NUM_WORDS).sort((a, b) => b.length - a.length).join("|");
+  const N = `(\\d{1,2}|${numWords})`;
+  const NC = `(?:\\d{1,2}|${numWords})`;
+  const MON = Object.keys(IT_MONTHS).sort((a, b) => b.length - a.length).join("|");
+  const WD = IT_WEEKDAYS.flat().join("|");
+  const PART = "(mattina|mattino|pomeriggio|sera|notte)";
+  return { L, R, N, NC, MON, WD, PART };
+})();
+function itNum(s) {
+  if (s == null) return null;
+  s = String(s).toLowerCase().trim();
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+  if (s === "primo" || s === "1°") return 1;
+  return IT_NUM_WORDS[s] ?? null;
 }
+
+function parseDateTime(text) {
+  const { L, R, N, NC, MON, WD, PART } = _DT;
+  const src = String(text || "").replace(/[’`´]/g, "'");
+  let work = src;
+  const found = [];
+  const rx = s => new RegExp(s, "iu");
+  const take = (re) => {
+    const m = work.match(re);
+    if (!m) return null;
+    found.push(m[0].trim());
+    work = work.slice(0, m.index) + " ".repeat(m[0].length) + work.slice(m.index + m[0].length);
+    return m;
+  };
+  const now = new Date();
+  const today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let hour = null, min = 0, part = null, absTs = null;
+  let base = null;          // Date (00:00) del giorno scelto
+  let defaultHour = 9, isToday = false, m;
+  const partHour = { mattina:9, mattino:9, pomeriggio:15, sera:20, notte:23 };
+  const normPart = p => p ? (p.toLowerCase() === "mattino" ? "mattina" : p.toLowerCase()) : null;
+  const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+
+  // ── 0) RIPETIZIONE: "ogni sera", "tutti i giorni", "ogni lunedì", "ogni mese"
+  let repeat = null;
+  if ((m = take(rx(`${L}(?:ogni|tutti\\s+i|tutte\\s+le)\\s+(giorn[oi]|mattin[ae]|mattino|pomerigg(?:io|i)|ser[ae]|nott[ie]|settiman[ae]|mes[ei]|(${WD}))${R}`)))) {
+    const w = m[1].toLowerCase();
+    if (m[2]) {
+      repeat = "weekly";
+      const wd = IT_WEEKDAYS.findIndex(a => a.includes(w));
+      base = addDays(today0, (wd - now.getDay() + 7) % 7);
+    } else if (/^settiman/.test(w)) { repeat = "weekly"; base = today0; }
+    else if (/^mes/.test(w)) {
+      repeat = "monthly"; base = today0;
+      const dm = take(rx(`${L}(?:il|giorno|al)\\s*(\\d{1,2})${R}`));      // "ogni mese il 5"
+      if (dm) { const day = +dm[1]; let d = new Date(today0.getFullYear(), today0.getMonth(), day); if (d < today0) d = new Date(today0.getFullYear(), today0.getMonth() + 1, day); base = d; }
+    }
+    else {
+      repeat = "daily"; base = today0;
+      if (/^mattin/.test(w)) part = "mattina"; else if (/^pomer/.test(w)) part = "pomeriggio";
+      else if (/^ser/.test(w)) part = "sera"; else if (/^not/.test(w)) part = "notte";
+    }
+  }
+
+  // ── 1) ORARI ──────────────────────────────────────────────
+  const minPart = `(?:\\s*[:.]\\s*(\\d{2})|\\s+e\\s+(mezz[ao]|un\\s+quarto|tre\\s+quarti|${NC})(?:\\s+minuti)?|\\s+meno\\s+(un\\s+quarto|${NC})(?:\\s+minuti)?)?`;
+  const cue = `(?:\\s+(?:di|del|della|al|in)\\s+${PART})?`;
+  const prefix = `(?:alle\\s+ore|alle|all'|verso\\s+le|verso\\s+l'|intorno\\s+alle|per\\s+le|per\\s+l'|entro\\s+le|entro\\s+l'|dalle|dall'|a\\s+partire\\s+dalle|sulle|ore|h\\.?)`;
+  if ((m = take(rx(`${L}(?:a\\s+)?mezzogiorno(?:\\s+e\\s+mezz[ao])?${R}`)))) { hour = 12; min = /\se\s+mezz/i.test(m[0]) ? 30 : 0; part = "mattina"; }
+  else if ((m = take(rx(`${L}(?:a\\s+)?mezzanotte${R}`)))) { hour = 0; min = 0; part = "notte"; }
+  else if ((m = take(rx(`${L}${prefix}\\s*${N}${minPart}${cue}${R}`)))) {
+    const h = itNum(m[1]);
+    if (h != null && h <= 24) {
+      hour = h % 24;
+      if (m[2]) min = parseInt(m[2], 10);
+      else if (m[3]) {
+        const x = m[3].toLowerCase();
+        min = /^mezz/.test(x) ? 30 : /quarto/.test(x) ? 15 : /tre\s+quarti/.test(x) ? 45 : (itNum(x) ?? 0);
+      } else if (m[4]) {
+        const x = m[4].toLowerCase();
+        const sub = /quarto/.test(x) ? 15 : (itNum(x) ?? 0);
+        hour = (hour + 23) % 24; min = 60 - sub;
+      }
+      if (min > 59) min = 0;
+      if (m[5]) part = normPart(m[5]);
+    }
+  } else if ((m = take(rx(`${L}([01]?\\d|2[0-3]):([0-5]\\d)${R}`)))) {
+    hour = parseInt(m[1], 10); min = parseInt(m[2], 10);
+  }
+
+  // ── 2) DURATE RELATIVE ────────────────────────────────────
+  const durUnit = "(minut[oi]|min|or[ae]|h|giorn[oi]|settiman[ae]|mes[ei]|ann[oi])";
+  if ((m = take(rx(`${L}(?:tra|fra|entro|dopo)\\s+(?:un\\s+|una\\s+)?quarto\\s+d'?\\s*ora${R}`)))) absTs = now.getTime() + 15 * 60000;
+  else if ((m = take(rx(`${L}(?:tra|fra|entro|dopo)\\s+(?:una\\s+)?mezz'?\\s*ora${R}`)))) absTs = now.getTime() + 30 * 60000;
+  else if ((m = take(rx(`${L}(?:tra|fra|entro|dopo|in)\\s+${N}\\s*${durUnit}(\\s+e\\s+mezz[ao])?${R}`)))) {
+    const n = itNum(m[1]) ?? 1, u = m[2].toLowerCase(), half = !!m[3];
+    if (/^min/.test(u)) absTs = now.getTime() + n * 60000;
+    else if (/^or|^h$/.test(u)) absTs = now.getTime() + (n + (half ? 0.5 : 0)) * 3600000;
+    else if (/^giorn/.test(u)) base = addDays(today0, n);
+    else if (/^settiman/.test(u)) base = addDays(today0, 7 * n);
+    else if (/^mes/.test(u)) base = new Date(today0.getFullYear(), today0.getMonth() + n, today0.getDate());
+    else if (/^ann/.test(u)) base = new Date(today0.getFullYear() + n, today0.getMonth(), today0.getDate());
+  }
+  else if ((m = take(rx(`${L}(?:tra|fra)\\s+(?:poco|un\\s+po'|pochi\\s+minuti|qualche\\s+minuto)${R}`)))) absTs = now.getTime() + 30 * 60000;
+
+  // ── 3a) DATA COMPLETA PRIMA DEL GIORNO DELLA SETTIMANA ("martedì 29 settembre")
+  if (absTs == null && !repeat && (m = take(rx(`${L}(?:(?:${WD})\\s+)?(?:(?:il|l'|lo|del|dal|al|entro\\s+il|entro\\s+l'|per\\s+il|per\\s+l'|giorno)\\s*)?(${NC}|primo|1°|\\d{1,2}°)\\s*(?:di\\s+)?(${MON})\\.?(?:\\s+(\\d{4}))?${R}`)))) {
+    const day = itNum(String(m[1]).replace("°", "")) ?? parseInt(m[1], 10);
+    const mo = IT_MONTHS[m[2].toLowerCase()];
+    if (day >= 1 && day <= 31) {
+      let d = new Date(m[3] ? +m[3] : today0.getFullYear(), mo, day);
+      if (!m[3] && d < today0) d = new Date(today0.getFullYear() + 1, mo, day);
+      base = d;
+    }
+  }
+  // ── 3) GIORNI ─────────────────────────────────────────────
+  if (!base && absTs == null) {
+    if ((m = take(rx(`${L}dopodomani(?:\\s+${PART})?${R}`)))) { base = addDays(today0, 2); part = part || normPart(m[1]); }
+    else if ((m = take(rx(`${L}domattina${R}`)))) { base = addDays(today0, 1); part = part || "mattina"; }
+    else if ((m = take(rx(`${L}domani(?:\\s+(?:in\\s+)?${PART})?${R}`)))) { base = addDays(today0, 1); part = part || normPart(m[1]); }
+    else if ((m = take(rx(`${L}(?:stamattina|stamani|stamane)${R}`)))) { base = today0; part = part || "mattina"; isToday = true; }
+    else if ((m = take(rx(`${L}stasera${R}`)))) { base = today0; part = part || "sera"; isToday = true; }
+    else if ((m = take(rx(`${L}stanotte${R}`)))) { base = today0; part = part || "notte"; isToday = true; }
+    else if ((m = take(rx(`${L}(?:oggi\\s+(?:in\\s+)?|questo\\s+|questa\\s+|nel\\s+)${PART}${R}`)))) { base = today0; part = part || normPart(m[1]); isToday = true; }
+    else if ((m = take(rx(`${L}(?:(?:il|di|questo|questa|prossimo|prossima|sto)\\s+)?(${WD})(?:\\s+(?:prossim[oa]|che\\s+viene))?(?:\\s+(\\d{1,2})(?!\\s*(?:[:.]\\d|${MON})))?(?:\\s+(?:in\\s+)?${PART})?${R}`)))) {
+      const wdName = m[1].toLowerCase();
+      const wd = IT_WEEKDAYS.findIndex(a => a.includes(wdName));
+      if (m[2]) {
+        const day = parseInt(m[2], 10);
+        let d = new Date(today0.getFullYear(), today0.getMonth(), day);
+        if (d < today0) d = new Date(today0.getFullYear(), today0.getMonth() + 1, day);
+        base = d;
+      } else {
+        let ahead = (wd - now.getDay() + 7) % 7;
+        if (ahead === 0) ahead = 7;
+        base = addDays(today0, ahead);
+      }
+      part = part || normPart(m[3]);
+    }
+    else if ((m = take(rx(`${L}(?:la\\s+|nella\\s+|entro\\s+la\\s+)?(?:settimana\\s+prossima|prossima\\s+settimana|settimana\\s+che\\s+viene)${R}`)))) {
+      let ahead = (1 - now.getDay() + 7) % 7; if (ahead === 0) ahead = 7;       // lunedì prossimo
+      base = addDays(today0, ahead);
+    }
+    else if ((m = take(rx(`${L}(?:il\\s+|nel\\s+|entro\\s+il\\s+)?(?:mese\\s+prossimo|prossimo\\s+mese|mese\\s+che\\s+viene)${R}`)))) {
+      base = new Date(today0.getFullYear(), today0.getMonth() + 1, 1);
+    }
+    else if ((m = take(rx(`${L}(?:(?:nel|questo|il|al|per\\s+il|a|entro\\s+il)\\s+)?(?:weekend|week-end|week\\s+end|fine\\s+settimana|finesettimana)${R}`)))) {
+      const d = now.getDay();
+      const ahead = d === 6 ? 0 : d === 0 ? 6 : 6 - d;
+      base = addDays(today0, ahead); defaultHour = 10; if (ahead === 0) isToday = true;
+    }
+    else if ((m = take(rx(`${L}(?:a|entro|per)\\s+fine\\s+mese${R}`)))) {
+      base = new Date(today0.getFullYear(), today0.getMonth() + 1, 0);
+      if (base < today0) base = new Date(today0.getFullYear(), today0.getMonth() + 2, 0);
+      if (+base === +today0) isToday = true;
+    }
+    else if ((m = take(rx(`${L}(?:(?:a|ad|all')\\s*inizio\\s+mese|(?:il\\s+)?primo\\s+del\\s+mese)${R}`)))) {
+      base = new Date(today0.getFullYear(), today0.getMonth() + (today0.getDate() === 1 ? 0 : 1), 1);
+    }
+    else if ((m = take(rx(`${L}oggi${R}`)))) { base = today0; isToday = true; }
+  }
+
+  // ── 4) DATE ESPLICITE ─────────────────────────────────────
+  if (!base && absTs == null) {
+    const nextOcc = (y, mo, d, hasYear) => {
+      let dt = new Date(y, mo, d);
+      if (!hasYear && dt < today0) dt = new Date(y + 1, mo, d);
+      return dt;
+    };
+    if ((m = take(rx(`${L}(?:(?:il|l'|lo|del|dal|al|entro\\s+il|entro\\s+l'|per\\s+il|per\\s+l'|giorno)\\s*)?(${NC}|primo|1°|\\d{1,2}°)\\s*(?:di\\s+)?(${MON})\\.?(?:\\s+(\\d{4}))?${R}`)))) {
+      const day = itNum(String(m[1]).replace("°", "")) ?? parseInt(m[1], 10);
+      const mo = IT_MONTHS[m[2].toLowerCase()];
+      if (day >= 1 && day <= 31) base = nextOcc(m[3] ? +m[3] : today0.getFullYear(), mo, day, !!m[3]);
+    }
+    else if ((m = take(rx(`${L}(?:(?:il|l'|entro\\s+il|per\\s+il)\\s*)?(\\d{1,2})[/\\-](\\d{1,2})(?:[/\\-](\\d{2,4}))?${R}`)))) {
+      const day = +m[1], mo = +m[2] - 1;
+      let y = m[3] ? +m[3] : today0.getFullYear(); if (y < 100) y += 2000;
+      if (day >= 1 && day <= 31 && mo >= 0 && mo <= 11) base = nextOcc(y, mo, day, !!m[3]);
+    }
+    else if ((m = take(rx(`${L}(?:a|ad|in|entro|per|a\\s+inizio|ai\\s+primi\\s+di)\\s+(${MON})(?:\\s+(\\d{4}))?${R}`)))) {
+      const mo = IT_MONTHS[m[1].toLowerCase()];
+      let y = m[2] ? +m[2] : today0.getFullYear();
+      let d = new Date(y, mo, 1);
+      if (!m[2] && d < today0) d = new Date(y + 1, mo, 1);
+      base = d;
+    }
+    else if ((m = take(rx(`${L}(?:il|l'|giorno|entro\\s+il|per\\s+il)\\s*(\\d{1,2}|primo)(?![\\d/\\-:.°])(?:\\s+(?:del|di\\s+questo|del\\s+prossimo)\\s+mese)?${R}`)))) {
+      const day = itNum(m[1]);
+      if (day >= 1 && day <= 31) {
+        let d = new Date(today0.getFullYear(), today0.getMonth(), day);
+        if (d < today0) d = new Date(today0.getFullYear(), today0.getMonth() + 1, day);
+        base = d;
+      }
+    }
+  }
+
+  // ── 5) PARTE DEL GIORNO DA SOLA ("pomeriggio", "di sera") ─
+  if (!part && hour == null && absTs == null) {
+    if ((m = take(rx(`${L}(?:(?:di|il|in|nel|la|nella)\\s+)?(pomeriggio|sera)${R}`)))) {
+      part = normPart(m[1]);
+      if (!base) { base = today0; isToday = true; }
+    }
+  }
+
+  // ── 6) COMPOSIZIONE ───────────────────────────────────────
+  let ts = null;
+  if (absTs != null) {
+    ts = absTs;
+    if (hour != null) {                           // "tra 2 giorni alle 15" non passa di qui; "tra un'ora" + orario → vince l'orario
+      const d = new Date(now); d.setHours(hour, min, 0, 0);
+      if (d < now) d.setDate(d.getDate() + 1);
+      ts = d.getTime();
+    }
+  } else if (base || hour != null) {
+    let h = hour, mn = min, fromDefault = false;
+    if (h != null) {
+      if (part === "pomeriggio" || part === "sera") { if (h >= 1 && h < 12) h += 12; }
+      else if (part === "notte") { if (h >= 8 && h < 12) h += 12; }
+      else if (part == null) {
+        if (h >= 1 && h <= 6) h += 12;                                    // "alle 3" = 15:00
+        else if (h >= 7 && h <= 11 && (!base || isToday)) {
+          const t = new Date(now); t.setHours(h, mn, 0, 0);
+          if (t <= now && h + 12 > now.getHours()) h += 12;              // alle 8 detto alle 10 → 20:00
+        }
+      }
+    } else {
+      fromDefault = true;
+      h = part ? partHour[part] : defaultHour; mn = 0;
+      if (isToday && !part && base && found.length) {                    // "oggi" senza orario
+        if (now.getHours() < 17) { h = 18; }
+        else { const t = new Date(now.getTime() + 60 * 60000); h = t.getHours(); mn = Math.ceil(t.getMinutes() / 5) * 5; if (mn >= 60) { h += 1; mn = 0; } }
+      }
+    }
+    const d = base ? new Date(base) : new Date(today0);
+    d.setHours(h, mn, 0, 0);
+    if (!base && d <= now) d.setDate(d.getDate() + 1);                  // solo orario, già passato → domani
+    if (fromDefault && !repeat && d <= now && +new Date(d.getFullYear(), d.getMonth(), d.getDate()) === +today0) {
+      const t = new Date(now.getTime() + 30 * 60000);                   // "stamattina" alle 10 → tra mezz'ora
+      t.setMinutes(Math.ceil(t.getMinutes() / 5) * 5, 0, 0);
+      ts = t.getTime();
+    } else ts = d.getTime();
+  }
+  if (ts == null) return null;
+  if (repeat && ts <= now.getTime()) ts = nextRepeat(ts, repeat);
+
+  // ── 7) TESTO PULITO ───────────────────────────────────────
+  let cleaned = work.replace(/\s{2,}/g, " ").trim();
+  const lead = /^(?:e|ed|di|che|a|ad|per|entro|verso|alle|ore|poi|,|-|:)\s+/iu;
+  const trail = /\s+(?:e|ed|di|da|a|ad|per|che|il|la|lo|l'|i|gli|le|entro|verso|alle|all'|ore|dal|dalla|del|della|nel|nella|sul|con|in|,|-|:)$/iu;
+  for (let i = 0; i < 4; i++) cleaned = cleaned.replace(lead, "").replace(trail, "").trim();
+  cleaned = cleaned.replace(/\s+([,.!?;:])/g, "$1").replace(/^[,.;:!?\s]+|[,;:\s]+$/g, "").trim();
+
+  return {
+    timestamp: ts, matched: found.join(" "), cleaned,
+    hasTime: hour != null || absTs != null || !!part,
+    hasExplicitTime: hour != null || (absTs != null),
+    repeat,
+  };
+}
+/* Prossima occorrenza di un promemoria ricorrente (mantiene l'orario "ancora") */
+function nextRepeat(fromTs, repeat, anchor) {
+  const d = new Date(fromTs);
+  if (anchor && /^\d{1,2}:\d{2}$/.test(anchor)) { const [h, mi] = anchor.split(":").map(Number); d.setHours(h, mi, 0, 0); }
+  let guard = 0;
+  do {
+    if (repeat === "weekly") d.setDate(d.getDate() + 7);
+    else if (repeat === "monthly") d.setMonth(d.getMonth() + 1);
+    else d.setDate(d.getDate() + 1);
+  } while (d.getTime() <= Date.now() && ++guard < 800);
+  return d.getTime();
+}
+const REPEAT_LABEL = { daily: "ogni giorno", weekly: "ogni settimana", monthly: "ogni mese" };
 
 /**
  * Detect user intent from a spoken/typed phrase.
@@ -4318,8 +4317,21 @@ function normalizeVoiceInput(raw) {
     if (s === before) break;
   }
 
-  // 3. Strip trailing politeness
+  // 3. Strip trailing politeness / wake word in coda
   s = s.replace(/[,.\s]+(?:grazie(?:\s+mille|\s+tante)?|per\s+(?:favore|piacere)|ti\s+prego)\s*[.!?]*$/i, "");
+  s = s.replace(/[,.\s]+tet?to\s*[.!?]*$/i, "");
+
+  // 3b. Riempitivi del parlato ("ehm", "cioè", "tipo" dopo devo/ricordami)
+  s = s.replace(/(?:^|\s)(?:ehm+|uhm+|ehh+|mmm+|cioè|diciamo|praticamente|insomma)(?=[\s,.!?]|$)[,]?/gi, " ").replace(/\s+/g, " ").trim();
+  s = s.replace(/^((?:devo|dovrei|ricordami(?:\s+di)?))\s+tipo\s+/i, "$1 ");
+
+  // 3c. Tutti i modi di chiedere un promemoria → "ricordami ..."
+  s = s.replace(/^(?:mi\s+)?(?:ricorderesti|ricordarmi)\s+/i, "ricordami ");
+  s = s.replace(/^mi\s+ricordi\s+(?=\S)/i, "ricordami ");
+  s = s.replace(/^(?:mi\s+devi\s+ricordare|mi\s+devo\s+ricordare|devo\s+ricordarmi|mi\s+serve\s+ricordare|non\s+farmi\s+dimenticare)\s+/i, "ricordami ");
+  s = s.replace(/^ricordati\s+(?=di\s|domani|oggi|stasera|tra\s|fra\s)/i, "ricordami ");
+  s = s.replace(/^segna(?:mi|ti)\s+(?:di\s+)?(?!in\s|nel\s|sul\s)/i, "ricordami di ");
+  s = s.replace(/^(?:avvisami|fammi\s+sapere)\s+(?=di\s|quando\s|domani|oggi|stasera)/i, "ricordami ");
 
   // 4. "ricordamelo"/"ricordatelo" → "ricordamelo"
   s = s.replace(/\bricorda(?:me|te)l[oa]\b/gi, "ricordami");
@@ -4337,12 +4349,12 @@ function normalizeVoiceInput(raw) {
 
 function isAffirmative(text) {
   const t = String(text || "").trim().toLowerCase();
-  return /^(?:s[iì]|si|certo|ok|va\s+bene|procedi|conferma|yes|yep|vai|fallo|esatto)\b/.test(t);
+  return /^(?:s[iìí]|certo|certamente|ok|okay|va\s+bene|procedi|conferma|confermo|yes|yep|vai|fallo|esatto|sicuro|assolutamente|d'accordo|perfetto)(?=[\s,.!?]|$)/.test(t);
 }
 
 function isNegative(text) {
   const t = String(text || "").trim().toLowerCase();
-  return /^(?:no|annulla|lascia\s+stare|stop|non\s+farlo|negativo)\b/.test(t);
+  return /^(?:no|annulla|lascia\s+stare|lascia\s+perdere|stop|non\s+farlo|negativo|meglio\s+di\s+no|aspetta|fermo|ferma)(?=[\s,.!?]|$)/.test(t);
 }
 
 function normalizeListRef(name) {
@@ -4376,10 +4388,17 @@ function splitCompositeCommands(rawText) {
   const src = String(rawText || "").trim();
   if (!src) return [];
   // Conservative split: only explicit sequencing words.
-  return src
-    .split(/\s+(?:e\s+poi|poi|quindi|dopodich[eé])\s+/i)
+  const parts = src
+    .split(/\s*,?\s+(?:e\s+poi|poi|quindi|dopodich[eé])\s+/i)
     .map(s => s.trim())
     .filter(Boolean);
+  if (parts.length > 1) {
+    const head = parts[0].match(/^(?:(?:ehi\s+|ok\s+)?teto[,\s]+)?(ricordami|ricordati|devo|segnami)\s/i);
+    for (let i = 1; i < parts.length; i++) {
+      if (head && /^(?:di|che|anche\s+di)\s/i.test(parts[i])) parts[i] = head[1] + " " + parts[i].replace(/^anche\s+/i, "");
+    }
+  }
+  return parts;
 }
 
 /**
@@ -4401,11 +4420,21 @@ function detectIntent(rawText) {
   }
 
   // ─── EXPLICIT PREFIXES (user forces type) ───────────────
-  if (/^(?:nota|note|nuova\s+nota|appunt[oi]|appunta|annota|memo)\s*[:\s]/i.test(t)) {
-    return { kind: "list_add_default", text: t.replace(/^(?:nota|note|nuova\s+nota|appunt[oi]|appunta|annota|memo)\s*[:\s]+/i, "").trim() };
+  if (/^(?:nota|note|nuova\s+nota|appunt[oi]|appunta(?:mi)?|annota(?:mi)?|prendi\s+nota|memo)\s*(?:che\s+)?[:\s]/i.test(t)) {
+    return { kind: "list_add_default", text: t.replace(/^(?:nota|note|nuova\s+nota|appunt[oi]|appunta(?:mi)?|annota(?:mi)?|prendi\s+nota|memo)\s*[:\s]+(?:che\s+)?/i, "").trim() };
   }
-  if (/^(?:evento|appuntamento|impegno)\s*[:\s]/i.test(t)) {
+  if (/^evento\s*[:\s]|^(?:appuntamento|impegno)\s*:/i.test(t)) {
     return parseEventIntent(t.replace(/^(?:evento|appuntamento|impegno)\s*[:\s]+/i, ""));
+  }
+  // "metti in calendario X" / "segna in agenda X" / "crea un evento X" / "fissa un appuntamento X"
+  if ((m = t.match(/^(?:metti|segna|aggiungi|inserisci|salva|scrivi)\s+(?:in|nel|al|sul|nell')\s*(?:calendario|agenda)\s+(.+)/i)) ||
+      (m = t.match(/^(?:crea|fissa|aggiungi|nuovo|metti|segna|prendi)\s+(?:un\s+|l'\s*|nuovo\s+)?(?:evento|appuntamento|impegno)\s*:?\s+(?:per\s+)?(.+)/i))) {
+    return parseEventIntent(m[1]);
+  }
+  // "svegliami/avvisami tra 20 minuti" → timer
+  if ((m = lower.match(/^(?:svegliami|avvisami|chiamami|suona)\s+(?:tra|fra|dopo)\s+(.+)$/i))) {
+    const ms = parseDuration(m[1]);
+    if (ms && ms > 0 && ms < 24 * 3600 * 1000 && !/\s(?:di|per|che)\s/.test(m[1])) return { kind: "timer", ms, label: formatDuration(ms) };
   }
   if (/^(?:task|compito|cosa\s+da\s+fare|da\s+fare)\s*[:\s]/i.test(t)) {
     return { kind: "task", text: t.replace(/^(?:task|compito|cosa\s+da\s+fare|da\s+fare)\s*[:\s]+/i, "").trim() };
@@ -4417,7 +4446,7 @@ function detectIntent(rawText) {
   }
 
   // ─── HELP ───────────────────────────────────────────────
-  if (/^(?:aiuto|help|cosa\s+(?:puoi|sai)\s+fare|comandi|che\s+comandi|come\s+funzioni|istruzioni|guida)\b/i.test(lower) ||
+  if (/^(?:aiuto|aiutami|help|come\s+si\s+usa|cosa\s+(?:puoi|sai)\s+fare|comandi|che\s+comandi|come\s+funzioni|istruzioni|guida)\b/i.test(lower) ||
       /^(?:non\s+so\s+(?:cosa|che)\s+dire|cosa\s+ti\s+posso\s+chiedere)\b/i.test(lower)) {
     return { kind: "help" };
   }
@@ -4447,6 +4476,12 @@ function detectIntent(rawText) {
   }
 
   // ─── BRIEFING (#4) ──────────────────────────────────────
+  if (/^(?:com'?\s*è|come\s+(?:è|sarà|va))\s+(?:la\s+)?(?:mia\s+)?giornata\b/i.test(lower)) return { kind: "briefing" };
+  if (/^(?:che\s+giorno\s+è(?:\s+oggi)?|che\s+giorno\s+è\s+domani|oggi\s+che\s+giorno\s+è|che\s+data\s+è(?:\s+oggi)?)\s*[?!.]*$/i.test(lower)) return { kind: "date_info" };
+  if (/^(?:cosa|che\s+cosa|che)\s+c'?\s*è\s+(?:in|nel|sul|nell')\s*(?:agenda|programma|calendario)\b/i.test(lower)) {
+    const w = lower.match(/\b(oggi|stasera|domani|questa\s+settimana|settimana)\b/);
+    return { kind: "summary", when: w ? (w[1] === "settimana" ? "questa settimana" : w[1]) : "oggi" };
+  }
   if (/^(?:briefing|riepilogo\s+mattutino|fammi\s+il\s+briefing|come\s+(?:è|e)\s+oggi|come\s+sarà\s+oggi|come\s+procede\s+oggi|sintesi\s+(?:della\s+)?giornata)\b/i.test(lower)) {
     return { kind: "briefing" };
   }
@@ -4462,7 +4497,7 @@ function detectIntent(rawText) {
     return { kind: "geofence_save_home" };
   }
   // "ricordati che X", "memorizza X", "tieni a mente che X"
-  if ((m = lower.match(/^(?:ricordati(?:\s+(?:di\s+me|che|di))?|memorizza(?:\s+che)?|tieni(?:mi)?\s+a\s+mente(?:\s+che)?|prendi\s+nota(?:\s+che)?|annota\s+(?:di\s+me|che))\s+(.+)/i))) {
+  if ((m = lower.match(/^(?:ricordati\s+(?:di\s+me\s+che|di\s+me|che)|memorizza(?:\s+che)?|tieni(?:mi)?\s+a\s+mente(?:\s+che)?|sappi\s+che)\s+(.+)/i))) {
     return { kind: "pref_set", text: m[1].trim() };
   }
 
@@ -4534,14 +4569,14 @@ function detectIntent(rawText) {
 
   // ─── CALENDAR: MOVE EVENT (V1) ────────────────────────
   // "sposta X a/al Y" — Y can be a date expression
-  if ((m = lower.match(/^(?:sposta|posticipa|rinvia|metti|cambia)\s+(?:l['’]?\s*evento\s+)?(.+?)\s+(?:a|al|alle|all['’]?|per\s+(?:il|la)?)\s+(.+)/i))) {
-    const dt = parseDateTime(m[2]);
+  if ((m = lower.match(/^(?:sposta(?:re)?|posticipa|rinvia|rimanda|anticipa|metti|cambia)\s+(?:l['’]?\s*evento\s+|l['’]?\s*appuntamento\s+)?(.+?)\s+((?:a|al|alle|all['’]?|ad|per\s+(?:il|la)?|di)\s+.+)/i))) {
+    const dt = parseDateTime(m[2].replace(/^(?:a|al|ad|di|per)\s+(?!le\s|l['’])/i, ""));
     if (dt && dt.timestamp) {
       const d = new Date(dt.timestamp);
       const dKey = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
-      const t = (d.getHours() !== 0 || d.getMinutes() !== 0)
+      const t = dt.hasExplicitTime
         ? `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}` : null;
-      return { kind: "event_move", query: m[1].trim(), dateKey: dKey, time: t };
+      return { kind: "event_move", query: stripArticles(m[1].trim()), dateKey: dKey, time: t };
     }
   }
 
@@ -4553,10 +4588,10 @@ function detectIntent(rawText) {
 
   // ─── LIST: CREATE ───────────────────────────────────────
   // "crea(mi) (una) lista X" / "nuova lista X" / "fai(mi) una lista X" / "voglio una lista X"
-  if ((m = lower.match(/^(?:crea(?:re|mi|temi|rmi)?|fai(?:re|mi|temi)?|fammi|fare|creo|voglio|vorrei|aggiungi|aggiungimi|aggiungere|aggiungermi)\s+(?:una\s+|un'\s*)?(?:nuova\s+)?lista\s+(?:(?:chiamata|di\s+nome|per\s+il|per\s+la|per|della|del|dei|delle)\s+)?(.+)/i))) {
+  if ((m = t.match(/^(?:crea(?:re|mi|temi|rmi)?|fai(?:re|mi|temi)?|fammi|fare|creo|voglio|vorrei|aggiungi|aggiungimi|aggiungere|aggiungermi|prepara(?:mi)?|apri(?:mi)?\s+una)\s+(?:una\s+|un'\s*|la\s+|il\s+)?(?:nuova\s+)?lista\s+(?:(?:chiamata|di\s+nome|per\s+il|per\s+la|per|della|del|dei|delle)\s+)?(.+)/i))) {
     return { kind: "list_create", name: stripArticles(m[1]) };
   }
-  if ((m = lower.match(/^nuova\s+lista\s+(.+)/i))) {
+  if ((m = t.match(/^nuova\s+lista\s+(.+)/i))) {
     return { kind: "list_create", name: stripArticles(m[1]) };
   }
 
@@ -4566,10 +4601,21 @@ function detectIntent(rawText) {
     return { kind: "list_delete", name: stripArticles(m[1]) };
   }
 
+  // ─── LIST: REMOVE ITEM ("togli il latte dalla spesa") ────
+  if ((m = t.match(/^(?:togli(?:ere)?|rimuovi|rimuovere|leva(?:re)?|cancella(?:re)?|elimina(?:re)?|butta\s+via)\s+(.+?)\s+(?:dalla|dal|dalle|dai|dagli|dallo)\s+(?:lista\s+(?:della\s+|dei\s+|del\s+|delle\s+)?)?(.+)$/i))) {
+    const ln = normalizeListRef(stripArticles(m[2]));
+    if (Lists.findByName(ln)) return { kind: "list_remove", items: splitListItems(m[1]), item: stripArticles(m[1]), listName: ln };
+  }
+
   // ─── LIST: CHECK ITEM (V-2) ──────────────────────────────
   // "spunta/segna X dalla/nella lista Y" / "spunta X" (one list match)
-  if ((m = lower.match(/^(?:spunta|segna(?:re)?(?:\s+come\s+fatt[oa])?|completa(?:re)?|fatto)\s+(.+?)\s+(?:dalla|nella|nelle|della|dalle|sulla|in|dal)\s+(?:lista\s+)?(.+)/i))) {
-    return { kind: "list_check", item: m[1].trim(), listName: stripArticles(m[2]) };
+  if ((m = t.match(/^(?:spunta|segna(?:re)?(?:\s+come\s+(?:fatt|pres)[oa])?|completa(?:re)?|fatto)\s+(.+?)\s+(?:dalla|nella|nelle|della|dalle|sulla|in|dal)\s+(?:lista\s+)?(.+)/i))) {
+    return { kind: "list_check", item: stripArticles(m[1].trim()), listName: stripArticles(m[2]) };
+  }
+  // "ho preso il latte" / "preso il latte" / "comprato il pane" / "spunta latte" → voce di una lista
+  if ((m = t.match(/^(?:ho\s+(?:già\s+)?(?:preso|comprato|trovato|visto|letto|messo)|pres[oi]|comprat[oi]|spunta)\s+(.+)$/i))) {
+    const hit = findListItemFuzzy(stripArticles(m[1]));
+    if (hit && hit.list.checkable !== false) return { kind: "list_check", item: hit.item.text, listName: hit.list.name };
   }
 
   // ─── LIST: EDIT ITEM (V-1) ───────────────────────────────
@@ -4583,13 +4629,16 @@ function detectIntent(rawText) {
   if ((m = lower.match(/^(?:svuota(?:re)?|pulis(?:ci|cire))\s+(?:la\s+)?lista\s+(.+)/i))) {
     return { kind: "list_clear", name: stripArticles(m[1]) };
   }
+  if ((m = lower.match(/^(?:svuota(?:re)?|azzera)\s+(.+)$/i)) && Lists.findByName(normalizeListRef(stripArticles(m[1])))) {
+    return { kind: "list_clear", name: normalizeListRef(stripArticles(m[1])) };
+  }
   if ((m = lower.match(/^cancella(?:re)?\s+(?:tutt[ie]\s+(?:le\s+)?voci\s+)?(?:della|dalla)\s+(?:lista\s+)?(.+)/i))) {
     return { kind: "list_clear", name: stripArticles(m[1]) };
   }
 
   // ─── LIST: COUNT (V-4) ───────────────────────────────────
   // "quante voci ho nella/sulla lista X" / "quanto è lunga la lista X"
-  if ((m = lower.match(/^(?:quante\s+voci|quanti\s+element[ie]|quanto\s+è\s+lunga)\s+(?:ho\s+)?(?:nella|della|sulla|in|sul|nel)\s+(?:lista\s+)?(.+?)[?!.]*$/i))) {
+  if ((m = lower.match(/^(?:quante\s+voci|quante\s+cose|quanti\s+element[ie]|quanti\s+prodotti|quanto\s+è\s+lunga)\s+(?:ho\s+|ci\s+sono\s+|abbiamo\s+|restano\s+)?(?:nella|della|sulla|in|sul|nel)\s+(?:lista\s+)?(.+?)[?!.]*$/i))) {
     return { kind: "list_count", name: stripArticles(m[1]) };
   }
 
@@ -4601,25 +4650,46 @@ function detectIntent(rawText) {
 
   // ─── LIST: ADD ───────────────────────────────────────────
   // "aggiungi X alla/nella lista Y"
-  if ((m = lower.match(/^(?:aggiung(?:i|imi|ere|ermi|iamo)|mett(?:i|imi|ere|ermi|iamo)|inseris(?:ci|cere|cimi|cermi)|salva(?:re|mi|rmi)?|scriv(?:i|ere|imi|ermi)|segna(?:re|mi|rmi)?|annota(?:re|mi|rmi)?|appunta(?:re|mi|rmi)?)\s+(.+?)\s+(?:alla|nella|in|sulla|sul|nel|al)\s+lista\s+(.+)/i))) {
-    return { kind: "list_add", item: m[1].trim(), listName: stripArticles(m[2]) };
+  const LADD = "(?:aggiung(?:i|imi|ere|ermi|iamo)|mett(?:i|imi|ere|ermi|iamo)|inseris(?:ci|cere|cimi|cermi)|salva(?:re|mi|rmi)?|scriv(?:i|ere|imi|ermi)|segna(?:re|mi|rmi)?|annota(?:re|mi|rmi)?|appunta(?:re|mi|rmi)?)";
+  const mkAdd = (itemsStr, listName) => { const items = splitListItems(itemsStr); return { kind: "list_add", items, item: items.join(", "), listName }; };
+  if ((m = t.match(new RegExp(`^${LADD}\\s+(.+?)\\s+(?:alla|nella|in|sulla|sul|nel|al)\\s+lista\\s+(?:della\\s+|dei\\s+|del\\s+|delle\\s+|degli\\s+|di\\s+)?(.+)`, "i")))) {
+    return mkAdd(m[1], stripArticles(m[2]));
+  }
+  // "metti nella spesa latte e biscotti" / "aggiungi alla lista spesa: latte" — nome lista riconosciuto per prefisso
+  if ((m = t.match(new RegExp(`^${LADD}\\s+(?:alla|nella|al|nel|in|a|sulla|sul)\\s+(?:lista\\s+(?:della\\s+|dei\\s+|del\\s+|delle\\s+)?)?(.+)$`, "i")))) {
+    const rest = m[1];
+    const byLen = [...Lists.lists].sort((a, b) => b.name.length - a.name.length);
+    const hit = byLen.find(l => rest.toLowerCase().startsWith(l.name.toLowerCase() + " ") || rest.toLowerCase().startsWith(l.name.toLowerCase() + ":"));
+    if (hit) return mkAdd(rest.slice(hit.name.length).replace(/^[\s:,]+/, ""), hit.name);
+  }
+  // "alla spesa aggiungi il caffè"
+  if ((m = t.match(new RegExp(`^(?:alla|nella|sulla|in|al|nel)\\s+(?:lista\\s+(?:della\\s+)?)?(.+?)\\s+${LADD}\\s+(.+)$`, "i")))) {
+    const ln = normalizeListRef(stripArticles(m[1]));
+    if (Lists.findByName(ln)) return mkAdd(m[2], ln);
+  }
+  // "spesa: pomodori, zucchine"
+  if ((m = t.match(/^([^:]{2,30}):\s*(.+)$/))) {
+    const ln = normalizeListRef(stripArticles(m[1]));
+    const l = Lists.findByName(ln);
+    if (l && ln.toLowerCase() === l.name.toLowerCase()) return mkAdd(m[2], l.name);
   }
   // "aggiungi X a/alla/al Y" (no "lista" word) — route to list_add if Y matches a known list
   if ((m = lower.match(/^(?:aggiung(?:i|imi|ere|ermi)|mett(?:i|imi|ere|ermi)|inseris(?:ci|cere|cimi)|scriv(?:i|ere|imi|ermi))\s+(.+?)\s+(?:alla|nella|sulla|al|nel|sul|a|in|su|ai|agli|alle|nei|negli|nelle|sui|sugli|sulle)\s+(.+)/i))) {
     const candidate = normalizeListRef(stripArticles(m[2]));
-    if (Lists.findByName(candidate)) {
-      return { kind: "list_add", item: m[1].trim(), listName: candidate };
+    const commonList = /^(?:spesa|lista\s+della\s+spesa|film|serie(?:\s+tv)?|libri|regali|compiti|valigia|viaggio|ricette|canzoni|musica|idee|cose\s+da\s+comprare)$/i.test(candidate);
+    if (Lists.findByName(candidate) || commonList) {
+      const items = splitListItems(m[1]);
+      return { kind: "list_add", items, item: items.join(", "), listName: candidate };
     }
   }
   // "aggiungi alla lista Y: X" or "aggiungi alla spesa X"
-  if ((m = lower.match(/^(?:aggiung(?:i|imi|ere|ermi)|mett(?:i|imi|ere|ermi))\s+(?:alla|nella|al|nel|in|a)\s+(?:lista\s+)?(\S+(?:\s+\S+)?)\s*[:,]?\s+(.+)/i))) {
-    const candidate = normalizeListRef(stripArticles(m[1]));
-    if (Lists.findByName(candidate)) {
-      return { kind: "list_add", listName: candidate, item: m[2].trim() };
-    }
-  }
+
 
   // ─── LIST: READ ──────────────────────────────────────────
+  if (/^(?:cosa|che\s+cosa|che)\s+(?:devo|dobbiamo|c'?\s*è\s+da)\s+comprare|^cosa\s+manca(?:\s+a\s+casa)?\s*[?!.]*$|^(?:la\s+)?lista\s+della\s+spesa\s*[?!.]*$/i.test(lower)) {
+    const sl = shoppingList();
+    if (sl) return { kind: "list_read", name: sl.name };
+  }
   // "mostra(mi)/apri/leggi(mi)/fammi vedere (la) lista X"
   if ((m = lower.match(/^(?:mostra(?:mi)?|apri(?:mi)?|leggi(?:mi)?|fammi\s+vedere|vedi|vedere|dammi|dimmi)\s+(?:la\s+)?lista\s+(.+)/i))) {
     return { kind: "list_read", name: stripArticles(m[1]) };
@@ -4636,11 +4706,18 @@ function detectIntent(rawText) {
   }
 
   // ─── TASK: COMPLETE ──────────────────────────────────────
+  if (!parseDateTime(t) && (m = t.match(/^(?:ho|abbiamo)\s+(?:già\s+|appena\s+)?(\p{L}+(?:at[oaie]|ut[oaie]|it[oaie]|tt[oaie]|st[oaie]|s[oaie]|rt[oaie]))\s+(.+)$/iu)) &&
+      !/^(?:fatto|finito|completato|concluso|ultimato)$/i.test(m[1])) {
+    const q = m[1] + " " + m[2];
+    const hit = findListItemFuzzy(stripArticles(m[2]));
+    if (hit && /^(?:pres|comprat|trovat|mess)/i.test(m[1])) return { kind: "list_check", item: hit.item.text, listName: hit.list.name };
+    return { kind: "complete_task", query: q.trim() };
+  }
   // "ho fatto X" / "ho finito X" / "ho completato X" / "fatto X" / "finito X" / "completa X" / "segna (come) fatto X"
   if ((m = lower.match(/^(?:ho\s+(?:fatto|finito|completato|concluso|ultimato))\s+(.+)/i)) ||
       (m = lower.match(/^(?:fatto|finito|completato|completata|completare|completa(?:mi)?)\s+(.+)/i)) ||
       (m = lower.match(/^(?:segna(?:mi|re)?|marca(?:mi|re)?|spunta)\s+(?:come\s+)?(?:fatto|finito|completato)\s+(.+)/i)) ||
-      (m = lower.match(/^(?:segna|marca|spunta)\s+(.+?)\s+(?:come\s+)?(?:fatto|finito|completato)/i))) {
+      (m = lower.match(/^(?:segna|marca|spunta)\s+(.+?)\s+(?:come\s+)?(?:fatt[oaie]|finit[oaie]|completat[oaie])\b/i))) {
     return { kind: "complete_task", query: stripArticles(m[1]) };
   }
 
@@ -4654,6 +4731,15 @@ function detectIntent(rawText) {
   }
 
   // ─── SUMMARY / AGENDA ────────────────────────────────────
+  if (/^(?:che|quali)\s+(?:programmi|piani|impegni|appuntamenti)\s+(?:ho|abbiamo)\b/i.test(lower)) {
+    const w = lower.match(/\b(oggi|stasera|domani|questa\s+settimana)\b/);
+    return { kind: "summary", when: w ? w[1] : "oggi" };
+  }
+  if ((m = lower.match(/^(?:cosa|che\s+cosa|che)\s+(?:ho|abbiamo|c'?\s*è)\s+(oggi|stasera|domani|dopodomani|questa\s+settimana|in\s+settimana)\s*[?!.]*$/i)) ||
+      (m = lower.match(/^(?:impegni|appuntamenti|programma|agenda)\s+(?:di\s+|per\s+)?(oggi|stasera|domani|questa\s+settimana)\s*[?!.]*$/i))) {
+    const w = m[1].replace(/in\s+settimana/, "questa settimana");
+    return { kind: "summary", when: w };
+  }
   //  "cosa devo fare", "che ho da fare", "che impegni ho", "cosa c'è in agenda", "agenda", "riassunto"
   if (/^(?:cosa|che\s+cosa|che|cos')\s+(?:devo|dovrei|ho\s+da|ho\s+in|c'?è\s+da|c'?è|abbiamo|abbiam)\s+(?:fare|da\s+fare|in\s+programma|in\s+agenda|programma|agenda|oggi|domani)?/i.test(lower) ||
       /^(?:che|quali)\s+(?:impegni|cose|task|appuntament[oi])\s+(?:ho|abbiamo)/i.test(lower) ||
@@ -4694,37 +4780,11 @@ function detectIntent(rawText) {
 
   // ─── "RICORDAMI DI X" / "DEVO X" / "NON DIMENTICARE X" → TASK ─
   // These are the most natural Italian forms for adding a task
-  if ((m = lower.match(/^(?:ricordami|ricordati|ricordamene)\s+(?:di|che\s+devo|che)\s+(.+)/i))) {
-    const rest = m[1];
-    const dt = parseDateTime(rest);
-    const text = (dt?.cleaned || rest).trim();
-    if (!text) return { kind: "clarify", original: m[0] };
-    return { kind: "task", text, reminderAt: dt?.timestamp || null };
-  }
-  if ((m = lower.match(/^(?:ricordami|ricordati)\s+(.+)/i))) {
-    const rest = m[1];
-    const dt = parseDateTime(rest);
-    const text = (dt?.cleaned || rest).trim();
-    // If all that's left is a bare day/time keyword, it's not a task
-    if (!text || /^(?:oggi|domani|dopodomani|stasera|stamattina|stanotte|subito|poi|dopo)$/i.test(text)) {
-      return { kind: "clarify", original: m[0] };
-    }
-    return { kind: "task", text, reminderAt: dt?.timestamp || null };
-  }
-  if ((m = lower.match(/^(?:devo|dovrei|ho\s+da|bisogna|bisognerebbe)\s+(.+)/i))) {
-    const rest = m[1];
-    const dt = parseDateTime(rest);
-    const text = (dt?.cleaned || rest).trim();
-    if (!text) return { kind: "clarify", original: m[0] };
-    return { kind: "task", text, reminderAt: dt?.timestamp || null };
-  }
-  if ((m = lower.match(/^non\s+(?:devo|posso)\s+dimenticare\s+(?:di\s+)?(.+)/i)) ||
-      (m = lower.match(/^non\s+dimenticare\s+(?:di\s+)?(.+)/i))) {
-    const rest = m[1];
-    const dt = parseDateTime(rest);
-    const text = (dt?.cleaned || rest).trim();
-    if (!text) return { kind: "clarify", original: m[0] };
-    return { kind: "task", text, reminderAt: dt?.timestamp || null };
+  if ((m = t.match(/^(?:ricordami|ricordati|ricordamene|promemoria(?:\s+per)?|ricorda)\s+(.+)/i)) ||
+      (m = t.match(/^(?:devo|dovrei|ho\s+da|bisogna|bisognerebbe|mi\s+tocca|tocca)\s+(.+)/i)) ||
+      (m = t.match(/^non\s+(?:devo|posso)\s+dimenticar(?:e|mi)\s+(.+)/i)) ||
+      (m = t.match(/^non\s+dimenticar(?:e|ti)\s+(.+)/i))) {
+    return taskFromText(m[1], t);
   }
 
   // ─── CANCEL / STOP (mid-conversation, user wants to abort) ───
@@ -4757,6 +4817,14 @@ function detectIntent(rawText) {
 
   // ─── QUESTIONS WE CAN ANSWER ─────────────────────────────
   // WEATHER
+  if (t.split(/\s+/).length <= 6 && /(?:^|\s)(?:piove|pioverà|piovera|nevica|nevicherà|ombrello|meteo)(?=[\s?!.,]|$)/i.test(lower) && !/^(?:ricordami|devo|comprare|compra|prendere)\b/i.test(lower)) {
+    const cm = lower.match(/\b(?:a|in)\s+([a-zàèéìòù' ]{3,30})$/i);
+    return { kind: "weather", city: cm && !/^(?:oggi|domani)$/.test(cm[1]) ? cm[1].trim() : null, when: /\bdomani\b/.test(lower) ? "tomorrow" : "now" };
+  }
+  if (/^(?:piover[àa]|pioverebbe|nevicher[àa]|nevica|far[àa]\s+(?:caldo|freddo|bel\s+tempo|brutto)|(?:mi\s+)?serve\s+l'?\s*ombrello|devo\s+prendere\s+l'?\s*ombrello|prendo\s+l'?\s*ombrello|quanti\s+gradi|che\s+temperatura|temperatura)(?=[\s?!.,]|$)/i.test(lower)) {
+    const cm = lower.match(/\b(?:a|in)\s+([a-zàèéìòù' ]{3,30})$/i);
+    return { kind: "weather", city: cm && !/^(?:oggi|domani)$/.test(cm[1]) ? cm[1].trim() : null, when: /\bdomani\b/.test(lower) ? "tomorrow" : "now" };
+  }
   if ((m = lower.match(/^(?:che\s+tempo\s+fa|com'?è\s+il\s+tempo|come\s+è\s+il\s+tempo|che\s+tempo\s+c'?è|piove|sta\s+piovendo|fa\s+caldo|fa\s+freddo|c'?è\s+il\s+sole|meteo)(?:\s+(?:a|in|su)\s+(.+))?$/i))) {
     return { kind: "weather", city: m[1] ? m[1].trim() : null, when: "now" };
   }
@@ -4768,10 +4836,14 @@ function detectIntent(rawText) {
   }
 
   // MATH — "quanto fa X" / "calcola X" / "quanto è X" / "fai X+Y" / "risolvi X"
-  if ((m = lower.match(/^(?:quanto\s+(?:fa|è|sono|vale|viene|fanno)|calcola(?:mi|temi)?|fammi\s+il\s+conto\s+di|fai(?:mi)?|risolvi(?:mi)?|qual\s+è\s+il\s+risultato\s+di|il\s+risultato\s+di|risultato\s+di|somma\s+(?:di|tra|fra)|prodotto\s+(?:di|tra|fra)|differenza\s+(?:di|tra|fra)|fa)\s+(.+)/i))) {
+  if ((m = lower.match(/^(?:quanto\s+(?:fa|è|sono|vale|viene|fanno)|calcola(?:mi|temi)?|fammi\s+il\s+conto\s+di|fai(?:mi)?(?!\s+partire)|risolvi(?:mi)?|qual\s+è\s+il\s+risultato\s+di|il\s+risultato\s+di|risultato\s+di|somma\s+(?:di|tra|fra)|prodotto\s+(?:di|tra|fra)|differenza\s+(?:di|tra|fra)|fa)\s+(.+)/i))) {
     const result = computeMath(m[1]);
     if (result !== null) return { kind: "math", expr: m[1].trim(), result };
     return { kind: "unknown_question", topic: "math" };
+  }
+  if (/^\d+(?:[.,]\d+)?\s+(?:più|piu|meno|per|diviso|fratto|x|volte)\s+\d/i.test(lower)) {
+    const result = computeMath(t);
+    if (result !== null) return { kind: "math", expr: t, result };
   }
   // Standalone math: "15 * 3" / "2+2" / "radice di 16" / "3 al quadrato" / "20% di 150"
   if (/^[\d\s+\-*/().,%]+$/.test(t) && /[+\-*/%]/.test(t) && /\d/.test(t)) {
@@ -4783,6 +4855,22 @@ function detectIntent(rawText) {
     if (result !== null) return { kind: "math", expr: t, result };
   }
 
+  // SVEGLIA — "metti una sveglia tra 10 minuti" → timer / "sveglia alle 7" → promemoria
+  if ((m = lower.match(/^(?:metti(?:mi)?|imposta(?:mi)?|punta(?:mi)?|programma)?\s*(?:una\s+|la\s+)?sveglia\s+(.+)$/i))) {
+    const ms = /^(?:tra|fra|di|per)\s/.test(m[1]) ? parseDuration(m[1]) : null;
+    if (ms && ms > 0 && ms < 24 * 3600 * 1000) return { kind: "timer", ms, label: formatDuration(ms) };
+    const dt = parseDateTime(m[1]);
+    if (dt) {
+      let ts = dt.timestamp;
+      const hm = m[1].match(/\b(?:alle|ore)\s+(\d{1,2})\b/i);
+      // Una sveglia "alle 7" è di mattina, salvo "di sera/pomeriggio"
+      if (hm && +hm[1] < 12 && !/sera|pomeriggio|notte/i.test(m[1])) {
+        const d = new Date(ts);
+        if (d.getHours() >= 12) { d.setHours(d.getHours() - 12); if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1); ts = d.getTime(); }
+      }
+      return { kind: "task", text: "⏰ Sveglia" + (dt.cleaned ? " — " + dt.cleaned : ""), reminderAt: ts, repeat: dt.repeat || null };
+    }
+  }
   // TIMER — "metti un timer di 5 minuti"
   if ((m = lower.match(/^(?:metti(?:mi)?|imposta(?:mi)?|avvia(?:mi)?|parti\s+con|fai\s+partire|fammi)?\s*(?:un\s+)?timer\s+(?:di\s+|per\s+|a\s+)?(.+)/i)) ||
       (m = lower.match(/^timer\s+(.+)/i))) {
@@ -4858,21 +4946,28 @@ function detectIntent(rawText) {
     if (!contentAfterDate) {
       return { kind: "clarify", original: t };
     }
+    // Ripetizione ("prendere la pillola ogni sera") → sempre task ricorrente
+    if (hasDate.repeat) return taskFromText(t, t);
+    // "domani devo andare in posta" / "stasera ricordami di X" → task
+    if (/^(?:devo|dovrei|ho\s+da|bisogna|ricordami|mi\s+tocca)\s/i.test(contentAfterDate)) {
+      return taskFromText(t.replace(/(?:^|\s)(?:devo|dovrei|ho\s+da|bisogna|ricordami(?:\s+di)?|mi\s+tocca)(?=\s)/i, " "), t);
+    }
     // If it STARTS with a clear task verb → task with reminder
-    if (clearTaskVerb.test(lower)) {
-      return { kind: "task", text: contentAfterDate, reminderAt: hasDate.timestamp };
+    if (clearTaskVerb.test(contentAfterDate) || clearTaskVerb.test(lower)) {
+      const cat = inferCategory(contentAfterDate);
+      return { kind: "task", text: cat.text, reminderAt: hasDate.timestamp, category: cat.category };
     }
     // If it contains event-ish keywords → event
     if (eventKeywords.test(lower)) {
       return parseEventIntent(t);
     }
     // Has time (not just date) → likely event/appointment ("alle 20 dentista")
-    const hasTime = /\balle?\s+(?:\d{1,2}|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|ventuno|ventidue|ventitre)\b|mezzogiorno|mezzanotte|\bstasera\b|\bstamattina\b|\bstanotte\b|\bpomeriggio\b/i.test(lower);
-    if (hasTime) {
+    if (hasDate.hasTime && !/^(?:tra|fra|entro|dopo)\s/i.test(hasDate.matched || "")) {
       return parseEventIntent(t);
     }
     // Date without time and no specific keyword → task with reminder
-    return { kind: "task", text: contentAfterDate, reminderAt: hasDate.timestamp };
+    const cat = inferCategory(contentAfterDate);
+    return { kind: "task", text: cat.text, reminderAt: hasDate.timestamp, category: cat.category, repeat: hasDate.repeat || null };
   }
 
   // ─── SMART FALLBACK ─────────────────────────────────────
@@ -4890,13 +4985,19 @@ function detectIntent(rawText) {
     return { kind: "unknown_question", topic: "general", text: t };
   }
 
-  // Very short (1-2 words) with no action verb → ambiguous, ask for clarification
-  if (words.length <= 2 && !hasActionVerb) {
+  // Interiezioni / parole vuote → chiedi chiarimento invece di creare un task
+  if (words.length <= 2 && /^(?:boh|mah|mh+|eh|ah|oh|uff|ok|okay|va\s+bene|sì|si|no|niente|nulla|niente\s+niente|forse|dai|vabbè|vabbe|ciao|hey|ehi)[!?.]*$/i.test(lower)) {
     return { kind: "clarify", original: t };
   }
 
-  // Default: treat as task
-  return { kind: "task", text: t };
+  // "aggiungi comprare il detersivo" / "metti un promemoria per X" (nessuna lista coinvolta)
+  if ((m = t.match(/^(?:aggiungi|aggiungimi|metti(?:mi)?|segna|inserisci|crea|nuovo)\s+(?:un\s+|una\s+)?(?:(?:task|promemoria|cosa\s+da\s+fare|compito|attività)\s+)?(?:per\s+|di\s+)?(.+)$/i))) {
+    return taskFromText(m[1], t);
+  }
+
+  // Default: treat as task (anche 1-2 parole: "pane", "bolletta luce")
+  const cat = inferCategory(t);
+  return { kind: "task", text: cat.text, category: cat.category };
 }
 
 /**
@@ -4910,12 +5011,100 @@ function stripArticles(s) {
     .trim();
 }
 
+function cleanEventTitle(s) {
+  let x = String(s || "").trim();
+  x = x.replace(/^(?:ho|abbiamo|c'?\s*è|avrò|avremo)\s+(?:(?:una|uno|un'|un|il|lo|la|l')(?:\s+|(?<=')))?/i, "");
+  x = x.replace(/^(?:vado|andare|andiamo|devo\s+andare)\s+(?=(?:dal|dalla|dallo|dai|al|alla|allo|a|in)\s)/i, "");
+  x = x.replace(/^(?:dal|dalla|dallo|dai|dagli|dalle)\s+/i, "");
+  x = x.replace(/^(?:(?:il|lo|la)\s+|l')/i, "");
+  return x.trim();
+}
 function parseEventIntent(text) {
   const dt = parseDateTime(text);
   if (dt) {
-    return { kind: "event", title: dt.cleaned || text, timestamp: dt.timestamp };
+    return { kind: "event", title: cleanEventTitle(dt.cleaned || text) || text, timestamp: dt.timestamp };
   }
-  return { kind: "event", title: text, timestamp: null };
+  return { kind: "event", title: cleanEventTitle(text) || text, timestamp: null };
+}
+
+/* ─── Helper NLU: task da testo libero, categoria automatica, voci multiple ─── */
+function taskFromText(rest, original) {
+  let r = String(rest || "").trim();
+  const dt = parseDateTime(r);
+  let text = (dt ? dt.cleaned : r).trim();
+  for (let i = 0; i < 2; i++) text = text.replace(/^(?:di|che\s+devo|che\s+dovrei|che|a|ad|devo|dovrei|mi\s+tocca)\s+/i, "").trim();
+  const cat = inferCategory(text);
+  text = cat.text;
+  if (!text || /^(?:oggi|domani|dopodomani|stasera|stamattina|stanotte|subito|poi|dopo|lo|la|questo|questa|quello)$/i.test(text)) {
+    return { kind: "clarify", original: original || rest };
+  }
+  return { kind: "task", text, reminderAt: dt?.timestamp || null, category: cat.category, repeat: dt?.repeat || null };
+}
+function inferCategory(text) {
+  let x = String(text || "");
+  let category = null;
+  const urg = /(?:^|\s)(?:è\s+)?(?:urgente(?:mente)?|con\s+urgenza|asap)(?=[\s,.!:]|$)[!:]*/i;
+  if (urg.test(x)) { category = "urgente"; x = x.replace(urg, " "); }
+  const work = /(?:^|\s)(?:per|di|da|al|sul)\s+lavoro(?=[\s,.!]|$)|^lavoro\s*:\s*/i;
+  if (!category && work.test(x)) { category = "lavoro"; x = x.replace(work, " "); }
+  x = x.replace(/\s{2,}/g, " ").replace(/^[,.:;\s]+|[,.:;\s]+$/g, "").trim();
+  return { text: x, category };
+}
+const COMMON_ITEMS = new Set(("pane latte uova burro zucchero sale pepe olio aceto farina pasta riso caffè tè the " +
+  "acqua vino birra succo biscotti cereali marmellata miele yogurt formaggio mozzarella parmigiano prosciutto " +
+  "salame tonno pollo carne manzo maiale pesce salmone patate cipolle aglio pomodori pomodoro insalata lattuga " +
+  "carote zucchine melanzane peperoni funghi frutta mele banane arance limoni fragole uva pere pesche " +
+  "cioccolato nutella gelato pizza piadine tortillas arepas harina detersivo ammorbidente sapone shampoo " +
+  "dentifricio spazzolino deodorante carta scottex fazzoletti spugne sacchetti candeggina lievito panna " +
+  "basilico prezzemolo origano legumi ceci fagioli lenticchie piselli mais wurstel uova crackers grissini " +
+  "patatine noci mandorle cacao").split(" "));
+function splitListItems(str) {
+  const raw = String(str || "").replace(/[.!?]+$/, "").trim();
+  let parts = raw.split(/\s*[,;]\s*|\s+(?:e|ed|più|poi)\s+/i).map(x => x.trim()).filter(Boolean);
+  // Dettato senza virgole: "latte pane uova" → 3 voci se sono tutte parole comuni della spesa
+  parts = parts.flatMap(p => {
+    const w = stripArticles(p).toLowerCase().split(/\s+/);
+    return (w.length >= 2 && w.every(x => COMMON_ITEMS.has(x))) ? w : [p];
+  });
+  return parts.map(p => stripArticles(p).trim()).filter(Boolean);
+}
+// Normalizzazione per confronti "morbidi" (accenti, articoli, radici)
+function nluTokens(s) {
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s']/g, " ").replace(/'/g, " ").split(/\s+/)
+    .filter(w => w && !/^(?:il|lo|la|i|gli|le|l|un|una|uno|di|a|da|in|con|su|per|tra|fra|del|della|dello|dei|degli|delle|al|alla|allo|ai|agli|alle|dal|dalla|nel|nella|sul|sulla|e|ed|ho|mio|mia|miei|mie)$/.test(w))
+    .map(w => w.length > 5 ? w.slice(0, 5) : w);
+}
+function fuzzyScore(query, target) {
+  const q = nluTokens(query), t = nluTokens(target);
+  if (!q.length || !t.length) return 0;
+  let hit = 0;
+  for (const w of q) if (t.some(x => x === w || (w.length >= 4 && (x.startsWith(w) || w.startsWith(x))))) hit++;
+  return hit / q.length;
+}
+function findTaskFuzzy(query, { includeDone = false } = {}) {
+  const pool = state.tasks.filter(t => includeDone || !t.done);
+  const q = String(query || "").toLowerCase().trim();
+  const exact = pool.find(t => t.text.toLowerCase().includes(q));
+  if (exact) return exact;
+  let best = null, bestScore = 0;
+  for (const t of pool) { const sc = fuzzyScore(query, t.text); if (sc > bestScore) { bestScore = sc; best = t; } }
+  return bestScore >= 0.6 ? best : null;
+}
+function findListItemFuzzy(query, { onlyOpen = true, listId = null } = {}) {
+  let best = null, bestScore = 0;
+  for (const l of Lists.lists) {
+    if (listId && l.id !== listId) continue;
+    for (const it of (Lists.items[l.id] || [])) {
+      if (onlyOpen && it.done) continue;
+      const sc = it.text.toLowerCase() === String(query).toLowerCase().trim() ? 1.01 : fuzzyScore(query, it.text);
+      if (sc > bestScore) { bestScore = sc; best = { list: l, item: it }; }
+    }
+  }
+  return bestScore >= 0.6 ? best : null;
+}
+function shoppingList() {
+  return Lists.lists.find(l => /spesa|supermercato|da\s+comprare|market/i.test(l.name)) || null;
 }
 
 /* ─── Intent quality + command pipeline ─── */
@@ -5007,11 +5196,22 @@ async function processUserCommand(rawText, source = "text") {
     state.pendingDangerAction = null;
   }
 
-  // Route through Gemini if enabled (dopo la gestione delle conferme sì/no)
-  if (GeminiAgent.enabled && (window.tetoAI || GeminiAgent.apiKey)) {
-    const ok = await GeminiAgent.run(original);
-    if (ok) return { ok: true, source: "gemini" };
-    // Gemini fallisce → continua con il parser locale
+  // Route through Gemini if enabled (dopo la gestione delle conferme sì/no).
+  // Comandi chiari e strutturati li esegue subito il parser locale: più veloce,
+  // funziona offline e non consuma chiamate. Gemini resta per il linguaggio libero.
+  if (GeminiAgent.enabled && (window.tetoAI || GeminiAgent.apiKey) && !state.pendingClarification) {
+    let local = null;
+    try { if (splitCompositeCommands(original).length === 1) local = detectIntent(original); } catch(e) {}
+    const FAST = new Set(["list_add","list_check","list_remove","list_create","list_read","list_clear","list_count",
+      "timer","math","convert","time_info","date_info","open","close","undo","help","event","event_move",
+      "event_delete","event_query","complete_task","summary","weather","coin","dice","random","countdown","focus_enter","focus_exit"]);
+    const shortTask = local && local.kind === "task" && String(local.text || "").split(/\s+/).length <= 8;
+    const fast = local && (FAST.has(local.kind) || shortTask) && !(local.kind === "event" && !local.timestamp);
+    if (!fast) {
+      const ok = await GeminiAgent.run(original);
+      if (ok) return { ok: true, source: "gemini" };
+      // Gemini fallisce → continua con il parser locale
+    }
   }
 
   // 2) Pending clarification slot filling.
@@ -5120,16 +5320,24 @@ async function executeIntent(intent) {
     }
     case "task": {
       const task = {
-        id: genId(), text: intent.text, category: state.cat,
+        id: genId(), text: capFirst(intent.text), category: intent.category || state.cat,
         note: "", done: false, ts: Date.now(),
         reminderAt: intent.reminderAt || null,
       };
+      if (intent.repeat && intent.reminderAt) {
+        const d0 = new Date(intent.reminderAt);
+        task.repeat = intent.repeat;
+        task.repeatAt = `${String(d0.getHours()).padStart(2,"0")}:${String(d0.getMinutes()).padStart(2,"0")}`;
+      }
       await addTaskToDb(task);
       state.lastAction = { kind: "task_create", id: task.id, text: task.text };
+      if (task.repeat) {
+        requestNotifPermission();
+        return `Ok! "${task.text}" 🔁 ${REPEAT_LABEL[task.repeat]} — la prima volta ${friendlyWhen(task.reminderAt)}`;
+      }
       if (intent.reminderAt) {
         requestNotifPermission();
-        const when = new Date(intent.reminderAt).toLocaleString("it-IT", { weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" });
-        return `Ok! Task aggiunto con promemoria per ${when}`;
+        return `Ok! "${task.text}" — te lo ricordo ${friendlyWhen(intent.reminderAt)} ⏰`;
       }
       return pick(TETO.added);
     }
@@ -5140,6 +5348,7 @@ async function executeIntent(intent) {
       const d = new Date(intent.timestamp);
       const dateStr = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
       const timeStr = `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+      intent.title = capFirst(intent.title);
       await db.collection("users").doc(state.uid).collection("events").add({
         title: intent.title,
         date: dateStr,
@@ -5153,8 +5362,7 @@ async function executeIntent(intent) {
       });
       state.lastAction = { kind: "event_create", title: intent.title, timestamp: intent.timestamp };
       requestNotifPermission();
-      const when = d.toLocaleString("it-IT", { weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" });
-      return `Evento salvato! ${intent.title} — ${when}`;
+      return `Evento salvato! ${intent.title} — ${friendlyWhen(intent.timestamp)} 📅`;
     }
     case "event_delete": {
       const found = await Calendar.deleteByTitle(intent.query);
@@ -5196,15 +5404,18 @@ async function executeIntent(intent) {
         const id = genId();
         const emoji = guessListEmoji(intent.listName);
         await db.collection("users").doc(state.uid).collection("lists").doc(id).set({
-          name: intent.listName, emoji, checkable: false, ts: Date.now(),
+          name: intent.listName, emoji, checkable: !/\b(?:note|nota|appunti|idee|idea|pensieri|diario)\b/i.test(intent.listName), ts: Date.now(),
         });
-        await Lists.addItem(id, intent.item);
+        for (const it of (intent.items && intent.items.length ? intent.items : [intent.item])) await Lists.addItem(id, it);
         state.lastAction = { kind: "list_add", listId: id, item: intent.item, listName: intent.listName };
         return `Lista "${intent.listName}" creata e "${intent.item}" aggiunto!`;
       }
-      await Lists.addItem(list.id, intent.item);
+      const toAdd = (intent.items && intent.items.length ? intent.items : [intent.item]).filter(Boolean);
+      for (const it of toAdd) await Lists.addItem(list.id, it);
       state.lastAction = { kind: "list_add", listId: list.id, item: intent.item, listName: list.name };
-      return `"${intent.item}" aggiunto a ${list.emoji} ${list.name}`;
+      return toAdd.length > 1
+        ? `Aggiunti a ${list.emoji} ${list.name}: ${toAdd.join(", ")} ✓`
+        : `"${toAdd[0]}" aggiunto a ${list.emoji} ${list.name}`;
     }
     case "list_add_default": {
       // Generic note → goes to default "Note" list (create if missing)
@@ -5224,12 +5435,16 @@ async function executeIntent(intent) {
       const list = Lists.findByName(intent.name);
       if (!list) return `Non ho trovato la lista "${intent.name}"`;
       Lists.open(list.id);
-      const items = Lists.items[list.id] || [];
-      if (items.length === 0) return `La lista ${list.emoji} ${list.name} è vuota`;
-      if (items.length <= 5) {
-        return `Nella lista ${list.name} ci sono: ${items.map(i=>i.text).join(", ")}`;
+      const all = Lists.items[list.id] || [];
+      const items = list.checkable ? all.filter(i => !i.done) : all;
+      const doneN = all.length - items.length;
+      if (all.length === 0) return `La lista ${list.emoji} ${list.name} è vuota`;
+      if (items.length === 0) return `${list.emoji} ${list.name}: tutto preso! ✓`;
+      const extra = doneN ? ` (${doneN} già ${doneN === 1 ? "presa" : "prese"})` : "";
+      if (items.length <= 6) {
+        return `${list.emoji} ${list.name}: ${items.map(i=>i.text).join(", ")}${extra}`;
       }
-      return `${list.emoji} ${list.name}: ${items.length} voci. L'ho aperta per te`;
+      return `${list.emoji} ${list.name}: ${items.length} voci${extra}. L'ho aperta per te`;
     }
     case "list_check": {
       intent.listName = normalizeListRef(intent.listName);
@@ -5238,7 +5453,7 @@ async function executeIntent(intent) {
       if (!list.checkable) return `La lista ${list.name} non è spuntabile (è una nota). Cambia tipo dalle azioni della lista`;
       const arr = Lists.items[list.id] || [];
       const q = intent.item.toLowerCase().trim();
-      const found = arr.find(it => !it.done && it.text.toLowerCase().includes(q));
+      const found = arr.find(it => !it.done && it.text.toLowerCase().includes(q)) || findListItemFuzzy(intent.item, { listId: list.id })?.item;
       if (!found) return `Non trovo "${intent.item}" tra le voci da fare di ${list.name}`;
       await Lists.toggleItem(list.id, found.id, false);
       return `Spuntato "${found.text}" da ${list.name} ✓`;
@@ -5424,21 +5639,45 @@ async function executeIntent(intent) {
       const rest = pendingTasks.length > 3 ? ` e altri ${pendingTasks.length-3}` : "";
       return `${label} hai ${pendingTasks.length} ${pendingTasks.length===1?"task":"task"}: ${preview}${rest}`;
     }
+    case "list_remove": {
+      intent.listName = normalizeListRef(intent.listName);
+      const list = Lists.findByName(intent.listName);
+      if (!list) return `Non ho trovato la lista "${intent.listName}"`;
+      const removed = [];
+      for (const q of (intent.items && intent.items.length ? intent.items : [intent.item])) {
+        const hit = findListItemFuzzy(q, { listId: list.id, onlyOpen: false });
+        if (hit) { await Lists.deleteItem(list.id, hit.item.id); removed.push(hit.item.text); }
+      }
+      if (!removed.length) return `Non trovo "${intent.item}" in ${list.name}`;
+      return `Tolto da ${list.emoji} ${list.name}: ${removed.join(", ")}`;
+    }
     case "complete_task": {
       const q = intent.query.toLowerCase();
-      const match = state.tasks.find(t => !t.done && t.text.toLowerCase().includes(q));
+      const match = findTaskFuzzy(q);
       if (!match) return `Non trovo nessun task che corrisponda a "${intent.query}"`;
-      await updateTaskInDb(match.id, { done: true });
+      const next = await completeTaskSmart(match);
+      if (next) return `Fatto! "${match.text}" 🔁 prossima volta ${friendlyWhen(next)}`;
       return `Fatto! "${match.text}" segnato come completato 🌟`;
     }
     // Gestione add_event/delete_event in GeminiAgent.exec() — non qui
     case "delete_task": {
       if (!intent.confirmed) {
-        state.pendingDangerAction = { kind: "delete_task", payload: { ...intent, confirmed: true } };
-        return `Sei sicur* di voler cancellare "${intent.query}"? Di' "sì" per confermare.`;
+        const target = findTaskFuzzy(intent.query, { includeDone: true });
+        if (!target) {
+          // Non è un task: forse è un evento del calendario ("cancella dentista")
+          const ev = Calendar.findByTitle(String(intent.query).toLowerCase());
+          if (ev) {
+            state.pendingDangerAction = { kind: "event_delete", payload: { query: ev.event.title } };
+            const dl = ev.date.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+            return `Cancello l'evento "${ev.event.title}" di ${dl}? Di' "sì" per confermare.`;
+          }
+          return `Non trovo nessun task o evento che corrisponda a "${intent.query}"`;
+        }
+        state.pendingDangerAction = { kind: "delete_task", payload: { ...intent, taskId: target.id, confirmed: true } };
+        return `Cancello "${target.text}"? Di' "sì" per confermare.`;
       }
       const q = intent.query.toLowerCase();
-      const match = state.tasks.find(t => t.text.toLowerCase().includes(q));
+      const match = state.tasks.find(t => t.id === intent.taskId) || findTaskFuzzy(q, { includeDone: true });
       if (!match) return `Non trovo nessun task che corrisponda a "${intent.query}"`;
       state.undoTask = { ...match };
       await deleteTaskFromDb(match.id);
@@ -6593,10 +6832,12 @@ async function requestNotifPermission() {
 }
 // Android Chrome vieta `new Notification()` ("Illegal constructor"):
 // le notifiche vanno mostrate tramite il Service Worker.
-async function sysNotify(title, body, tag) {
+async function sysNotify(title, body, tag, extra) {
   if (!("Notification" in window) || Notification.permission !== "granted") return false;
   const opts = { body, icon: "./icon-192.png", badge: "./icon-192.png", tag: tag || "tetotask",
-                 renotify: true, vibrate: [120, 60, 120], data: { url: location.href.split("#")[0] } };
+                 renotify: true, vibrate: [120, 60, 120],
+                 data: { url: location.href.split("?")[0].split("#")[0], ...((extra && extra.data) || {}) } };
+  if (extra && extra.actions) opts.actions = extra.actions;
   try {
     if ("serviceWorker" in navigator) {
       const reg = await navigator.serviceWorker.getRegistration() ||
@@ -6604,9 +6845,9 @@ async function sysNotify(title, body, tag) {
       if (reg && reg.showNotification) { await reg.showNotification(title, opts); return true; }
     }
   } catch(e) { console.warn("SW notification failed:", e); }
-  try { new Notification(title, opts); return true; } catch(e) { return false; }
+  try { const o = { ...opts }; delete o.actions; new Notification(title, o); return true; } catch(e) { return false; }
 }
-function notify(title, body, tag) { sysNotify(title, body, tag); }
+function notify(title, body, tag, extra) { sysNotify(title, body, tag, extra); }
 
 /* ─── Registro notifiche già inviate (persistente: niente doppioni dopo un riavvio) ─── */
 const NotifLog = {
@@ -6631,7 +6872,10 @@ function checkDueReminders() {
       if (seen[kDue]) continue;
       seen[kDue] = now; seen[kSoon] = seen[kSoon] || now;
       showBubble(TETO.overdue(t.text));
-      notify("TetoTask 🍞", `${t.text} — è il momento!`, "task-" + t.id);
+      notify("TetoTask 🍞", `${t.text} — è il momento!`, "task-" + t.id, {
+        actions: [{ action: "done", title: "✓ Fatto" }, { action: "snooze", title: "⏰ +10 min" }],
+        data: { taskId: t.id },
+      });
       fired = true;
     } else if (t.reminderAt - now <= 5*60*1000) {
       if (seen[kSoon]) continue;
@@ -6686,9 +6930,21 @@ function toggleProactive() {
   else { clearTimeout(proactiveTimer); showBubble("Ok, non ti disturbo più!"); }
 }
 
+// Render raggruppato: più richieste nello stesso frame = un solo render
+let _renderQueued = false;
+function requestRender() {
+  if (_renderQueued) return;
+  _renderQueued = true;
+  const run = () => { if (!_renderQueued) return; _renderQueued = false; render(); };
+  if (document.visibilityState === "visible" && window.requestAnimationFrame) requestAnimationFrame(run);
+  else setTimeout(run, 0);
+}
+
 function showBubble(text, opts = {}) {
   state.bubble = text;
-  render();
+  // Aggiorna subito il fumetto, poi un unico render completo nel prossimo frame
+  document.querySelectorAll(".bubble, .focus-bubble").forEach(el => { el.textContent = text; });
+  requestRender();
   // Speak unless silent flag passed or mic is listening (avoid feedback loop).
   // TTS.speak() sanitizes emojis/tildes internally now.
   if (!opts.silent && !state.listening) {
@@ -6825,9 +7081,10 @@ function listenToTasks() {
   if (unsubFirestore) { try { unsubFirestore(); } catch(e){} }
   unsubFirestore = tasksRef().orderBy("ts","desc").onSnapshot(snap => {
     state.tasks = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+    if (_pendingNotifAction) setTimeout(() => _pendingNotifAction && handleNotifAction(_pendingNotifAction.action, _pendingNotifAction.taskId), 0);
     // Solo re-render se la vista principale è attiva
     if (!Calendar.open_ && !Lists.open_ && !state.showSettings && !state.showHelp && !state.focusMode) {
-      render();
+      requestRender();
     }
   }, err => {
     console.error("Firestore listen error:", err);
@@ -6858,9 +7115,16 @@ function toggleMic() {
   recognition = new SR();
   recognition.lang = "it-IT";
   recognition.continuous = false;
-  recognition.interimResults = false;
+  recognition.interimResults = true;   // mostra in diretta cosa sta capendo
   recognition.onresult = async e => {
-    const transcript = e.results[0][0].transcript;
+    const res = e.results[e.results.length - 1];
+    if (!res.isFinal) {
+      const inp = document.getElementById("taskInput");
+      if (inp) inp.value = Array.from(e.results).map(r => r[0].transcript).join("");
+      return;
+    }
+    const transcript = Array.from(e.results).map(r => r[0].transcript).join("").trim();
+    if (!transcript) return;
     state.listening = false;
     state.input = "";  // we'll execute directly
     render();
@@ -6875,10 +7139,19 @@ function toggleMic() {
       setTimeout(() => document.getElementById("taskInput")?.focus(), 100);
     }
   };
-  recognition.onerror = () => {
+  recognition.onerror = (ev) => {
     state.listening = false;
+    const code = ev && ev.error;
+    if (code === "no-speech" || code === "aborted") {
+      showBubble("Non ho sentito niente~ riprova quando vuoi 🎤", {silent:true});
+    } else if (code === "not-allowed" || code === "service-not-allowed") {
+      showBubble("Mi serve il permesso del microfono: toccalo nelle impostazioni del sito/app e consenti 🎤", {silent:true});
+    } else if (code === "network") {
+      showBubble("Il riconoscimento vocale ha bisogno di internet~ scrivimi pure intanto ✍️", {silent:true});
+    } else {
+      showBubble(TETO.voiceErr, {silent:true});
+    }
     render();
-    showBubble(TETO.voiceErr, {silent:true});
     WAKE.resume();
   };
   recognition.onend = () => {
@@ -6890,7 +7163,13 @@ function toggleMic() {
   // Small delay so any just-cancelled TTS / wake recognizer is fully stopped
   // before the command mic opens (mic hardware needs a brief release window).
   setTimeout(() => {
-    try { recognition.start(); } catch(e) {}
+    try { recognition.start(); }
+    catch(e) {
+      state.listening = false;
+      showBubble(TETO.voiceErr, {silent:true});
+      WAKE.resume();
+      return;
+    }
     state.listening = true;
     // "Ti ascolto" is shown VISUALLY only — not spoken, to avoid mic feedback
     showBubble(TETO.listen, {silent:true});
@@ -6934,9 +7213,26 @@ async function addTask() {
 }
 
 
+/* Completa un task: se è ricorrente lo ripianifica alla prossima volta */
+async function completeTaskSmart(t) {
+  if (t.repeat && t.reminderAt) {
+    const next = nextRepeat(t.reminderAt, t.repeat, t.repeatAt);
+    await updateTaskInDb(t.id, { reminderAt: next, lastDoneAt: Date.now() });
+    return next;
+  }
+  await updateTaskInDb(t.id, { done: true });
+  return null;
+}
 function toggleDone(id) {
   const t = state.tasks.find(x=>x.id===id);
   if (!t) return;
+  if (!t.done && t.repeat && t.reminderAt) {
+    completeTaskSmart(t).then(next => showBubble(`Fatto! 🔁 Prossima volta ${friendlyWhen(next)}`));
+    haptic(20);
+    const btn = document.querySelector(`[data-task-id="${id}"] .check-btn`);
+    if (btn) { const r = btn.getBoundingClientRect(); confetti(r.left + r.width/2, r.top + r.height/2); }
+    return;
+  }
   updateTaskInDb(id, { done:!t.done });
   if (!t.done) {
     showBubble(pick(TETO.done));
@@ -7023,9 +7319,17 @@ function setReminderPreset(preset) {
 
 /* ─── Teto Avatar (personal fan-art image) ─── */
 const TETO_IMG = "data:image/jpeg;base64,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";
+const TETO_IMG_URL = (() => {
+  try {
+    const bin = atob(TETO_IMG.split(",")[1]);
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return URL.createObjectURL(new Blob([u8], { type: "image/jpeg" }));
+  } catch(e) { return TETO_IMG; }
+})();
 function mascotSVG(speaking) {
   return `<div class="avatar ${speaking?'avatar-speak':''}">
-    <img src="${TETO_IMG}" alt="Teto" draggable="false"/>
+    <img src="${TETO_IMG_URL}" alt="Teto" draggable="false"/>
     ${speaking?'<div class="avatar-ring"></div>':''}
   </div>
   <div class="mascot-mood" title="${mascotMoodTitle()}">${mascotMood()}</div>`;
@@ -7146,7 +7450,110 @@ function globalSearchResults() {
   return { tasks, events, listItems, total, q };
 }
 
+/* ─── Anteprima live: cosa ha capito Teto mentre scrivi ─── */
+function smartHintHTML() {
+  const raw = (state.input || "").trim();
+  if (raw.length < 3) return "";
+  try {
+    const it = detectIntent(raw);
+    const fmt = ts => new Date(ts).toLocaleString("it-IT", { weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" });
+    if (it) {
+      if (it.kind === "event" && it.timestamp) return `<div class="smart-hint">📅 Evento: <strong>${esc(it.title||"")}</strong> — ${fmt(it.timestamp)} · premi invio~</div>`;
+      if (it.kind === "task" && it.reminderAt) return `<div class="smart-hint">${it.repeat ? "🔁" : "⏰"} Task: <strong>${esc(capFirst(it.text||""))}</strong> — ${esc(friendlyWhen(it.reminderAt))}${it.repeat ? " · " + REPEAT_LABEL[it.repeat] : ""}${it.category === "urgente" ? " · ⚡" : it.category === "lavoro" ? " · 💼" : ""}</div>`;
+      if (it.kind === "list_add" && it.listName) {
+        const l = Lists.findByName(it.listName);
+        const n = (it.items || []).length;
+        if (l) return `<div class="smart-hint">📝 Aggiungo a <strong>${l.emoji} ${esc(l.name)}</strong>${n > 1 ? `: ${esc(it.items.join(", "))}` : ""} — premi invio~</div>`;
+      }
+      if (it.kind === "list_check") return `<div class="smart-hint">✓ Spunto <strong>${esc(it.item||"")}</strong> da ${esc(it.listName||"")}</div>`;
+      if (it.kind === "complete_task") { const tk = findTaskFuzzy(it.query); if (tk) return `<div class="smart-hint">✓ Completo <strong>${esc(tk.text)}</strong></div>`; }
+      if (it.kind === "math" && it.result != null) return `<div class="smart-hint">🧮 = <strong>${esc(formatMathResult(it.result))}</strong></div>`;
+    }
+  } catch(e) {}
+  if (GeminiAgent.enabled && (window.tetoAI || GeminiAgent.apiKey) && raw.length > 4)
+    return `<div class="smart-hint">✨ Gemini attivo — puoi scrivere in modo naturale</div>`;
+  return "";
+}
+let _hintTimer = null;
+function scheduleSmartHint() {
+  clearTimeout(_hintTimer);
+  _hintTimer = setTimeout(() => {
+    const el = document.getElementById("smartHint");
+    if (el) el.innerHTML = smartHintHTML();
+  }, 150);
+}
+
+/* ─── Avvio da scorciatoia / condivisione / notifica ─── */
+function handleLaunchParams() {
+  let q;
+  try { q = new URLSearchParams(location.search); } catch(e) { return; }
+  if (![...q.keys()].length) return;
+  const open = q.get("open"), notif = q.get("notif"), task = q.get("task");
+  const title = q.get("share_title") || "", text = q.get("share_text") || "", url = q.get("share_url") || "";
+  const shared = [title, text, (url && !text.includes(url)) ? url : ""].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  // Pulisce l'URL così un ricaricamento non ripete l'azione
+  try { history.replaceState(null, "", location.pathname); } catch(e) {}
+  if (notif && task) handleNotifAction(notif, task);
+  if (open === "calendar") { Calendar.open(); render(); }
+  else if (open === "lists") { Lists.open(); render(); }
+  else if (open === "new") setTimeout(() => document.getElementById("taskInput")?.focus(), 300);
+  if (shared) {
+    state.input = shared.slice(0, 300);
+    render();
+    showBubble("Mi hai condiviso qualcosa~ premi invio per salvarlo 🍞", { silent: true });
+    localStorage.setItem("teto-seen-onboarding", "1");
+  }
+}
+
+function capFirst(s) { s = String(s || "").trim(); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+function friendlyWhen(ts) {
+  const d = new Date(ts), now = new Date();
+  const hm = d.toLocaleTimeString("it-IT", { hour:"2-digit", minute:"2-digit" });
+  const day0 = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day0(d) - day0(now)) / 86400000);
+  if (diff === 0) return "oggi alle " + hm;
+  if (diff === 1) return "domani alle " + hm;
+  return d.toLocaleDateString("it-IT", { weekday:"long", day:"numeric", month:"short" }) + " alle " + hm;
+}
+
+/* ─── Rimanda / imposta promemoria di un task ─── */
+async function snoozeTask(id, how) {
+  const t = state.tasks.find(x => x.id === id);
+  if (!t) return;
+  let at = null;
+  const d = new Date();
+  if (typeof how === "number") at = Date.now() + how * 60000;
+  else if (how === "tonight") { d.setHours(20, 0, 0, 0); if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1); at = d.getTime(); }
+  else if (how === "tomorrow") { d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); at = d.getTime(); }
+  if (at) {
+    // Evita il doppio avviso "tra poco" per i rinvii brevi
+    if (at - Date.now() <= 10 * 60000) { const seen = NotifLog.load(); seen[id + ":" + at + ":soon"] = Date.now(); NotifLog.save(seen); }
+    requestNotifPermission();
+  }
+  await updateTaskInDb(id, { reminderAt: at });
+  haptic(10);
+  showBubble(at ? `Ok, te lo ricordo ${friendlyWhen(at)} ⏰` : "Promemoria tolto~");
+}
+
+/* ─── Azioni dalle notifiche (✓ Fatto / ⏰ +10 min) ─── */
+let _pendingNotifAction = null;
+function handleNotifAction(action, taskId) {
+  const t = state.tasks.find(x => x.id === taskId);
+  if (!t) { _pendingNotifAction = { action, taskId }; return; }   // task non ancora caricati
+  _pendingNotifAction = null;
+  if (action === "done" && !t.done) {
+    completeTaskSmart(t).then(next => showBubble(next ? `Fatto! 🔁 Prossima volta ${friendlyWhen(next)}` : pick(TETO.done)));
+  }
+  else if (action === "snooze") snoozeTask(taskId, 10);
+}
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", e => {
+    if (e.data && e.data.type === "notif-action") handleNotifAction(e.data.action, e.data.taskId);
+  });
+}
+
 function render() {
+  _renderQueued = false;
   const s = state;
   // Preserve focus/caret of the field being typed in (full re-render replaces the DOM)
   let _focus = null;
@@ -7201,6 +7608,15 @@ function render() {
             <span class="meta-cat">${c.emoji} ${c.label}</span>
             <span class="meta-date">${dateStr}</span>
           </div>
+          ${!t.done ? `<div class="snooze-row">
+            <span class="snooze-label">⏰ ${t.reminderAt ? "Rimanda" : "Ricordamelo"}</span>
+            <button class="preset-chip" onclick="snoozeTask('${t.id}', 10)">+10 min</button>
+            <button class="preset-chip" onclick="snoozeTask('${t.id}', 60)">+1 ora</button>
+            <button class="preset-chip" onclick="snoozeTask('${t.id}', 'tonight')">Stasera</button>
+            <button class="preset-chip" onclick="snoozeTask('${t.id}', 'tomorrow')">Domani 9:00</button>
+            ${t.reminderAt ? `<button class="preset-chip" onclick="snoozeTask('${t.id}', null)">✕ Togli</button>` : ""}
+            ${t.repeat ? `<button class="preset-chip" onclick="updateTaskInDb('${t.id}', { repeat: null, repeatAt: null }).then(()=>showBubble('Non si ripete più~'))">🔁 Non ripetere</button>` : ""}
+          </div>` : ""}
           ${state.editText === t.id ? `
             <div style="display:flex;gap:6px;margin-bottom:10px">
               <input type="text" class="task-edit-input" id="taskEditInput" value="${esc(state.editTextVal)}"
@@ -7225,7 +7641,7 @@ function render() {
         <div class="task-main">
           <button class="check-btn ${t.done?"checked":""}" onclick="toggleDone('${t.id}')">${t.done?ICONS.check:""}</button>
           <div class="task-text ${t.done?"done-text":""}" onclick="state.expanded=state.expanded==='${t.id}'?null:'${t.id}';render()">
-            ${c.emoji} ${esc(t.text)} ${t.note&&!isExp?"📝":""}${t.reminderAt && !t.done ? `<span class="reminder-chip ${getReminderStatus(t.reminderAt)}">⏰ ${formatReminder(t.reminderAt)}</span>` : ""}
+            ${c.emoji} ${esc(t.text)} ${t.note&&!isExp?"📝":""}${t.reminderAt && !t.done ? `<span class="reminder-chip ${getReminderStatus(t.reminderAt)}">${t.repeat ? "🔁" : "⏰"} ${formatReminder(t.reminderAt)}${t.repeat ? " · " + (REPEAT_LABEL[t.repeat] || "") : ""}</span>` : ""}
           </div>
           <button class="speak-btn icon-btn" onclick="event.stopPropagation();speakTask('${t.id}')" title="Leggi ad alta voce">${ICONS.speaker}</button>
           <button class="icon-btn" onclick="state.expanded=state.expanded==='${t.id}'?null:'${t.id}';render()">
@@ -7277,7 +7693,12 @@ function render() {
     }
     if (doneList.length > 0) {
       tasksHTML += `<div class="section-label done-label">✓ Completate <span class="count">${doneList.length}</span></div>`;
-      tasksHTML += doneList.map(renderCard).join("");
+      const DONE_MAX = 5;
+      const doneShown = s.showAllDone ? doneList : doneList.slice(0, DONE_MAX);
+      tasksHTML += doneShown.map(renderCard).join("");
+      if (doneList.length > DONE_MAX) {
+        tasksHTML += `<button class="show-more-done" onclick="state.showAllDone=!state.showAllDone;render()">${s.showAllDone ? "Mostra meno" : "Mostra altre " + (doneList.length - DONE_MAX) + " completate"}</button>`;
+      }
     }
   }
 
@@ -7514,18 +7935,11 @@ ${!window.tetoAI ? `<div class="settings-row" style="flex-direction:column;align
         </button>
         <input id="taskInput" class="text-input" type="text" value="${esc(s.input)}"
           placeholder="Parla o scrivi: task, evento, nota..."
-          oninput="state.input=this.value"
+          oninput="state.input=this.value;scheduleSmartHint()"
           onkeydown="if(event.key==='Enter')addTask()">
         <button class="send-btn" onclick="addTask()">${ICONS.send}</button>
       </div>
-      ${(()=>{
-        const v = s.input.toLowerCase();
-        const lm = Lists.lists.find(l=>v.includes(l.name.toLowerCase())&&/aggiungi|metti|inserisci/i.test(v));
-        if (lm) return `<div class="smart-hint">📝 Aggiungo a <strong>${lm.emoji} ${esc(lm.name)}</strong> — premi invio~</div>`;
-        if (GeminiAgent.enabled&&(window.tetoAI||GeminiAgent.apiKey)&&s.input.length>4)
-          return `<div class="smart-hint">✨ Gemini attivo — puoi scrivere in modo naturale</div>`;
-        return "";
-      })()}
+      <div id="smartHint">${smartHintHTML()}</div>
       <div class="cat-row">
         ${CATS.map(c=>`<button class="cat-btn ${s.cat===c.id?"on":"off"}" onclick="state.cat='${c.id}';render()">${c.emoji} ${c.label}</button>`).join("")}
         <div style="flex:1"></div>
@@ -8163,9 +8577,13 @@ function renderHelp() {
       commands: [
         { say: '"Ricordami di comprare il pane"', does: "Crea un task" },
         { say: '"Devo chiamare Marco domani"', does: "Task con promemoria" },
-        { say: '"Domani alle 15 dentista"', does: "Task con data e ora" },
+        { say: '"Domani alle 15 dentista"', does: "Evento in calendario" },
+        { say: '"Ricordami di prendere la pillola ogni sera alle 21"', does: "Promemoria che si ripete 🔁" },
+        { say: '"Ogni lunedì portare fuori la differenziata"', does: "Ripete ogni settimana" },
+        { say: '"Urgente: chiamare l\'idraulico"', does: "Task nella categoria ⚡ Urgente" },
+        { say: '"Ho chiamato la mamma"', does: "Segna fatto il task giusto" },
         { say: '"Tra 2 ore chiamare Marco"', does: "Promemoria relativo" },
-        { say: '"Alle 8 di sera cena"', does: "Task alle 20:00" },
+        { say: '"Alle 8 di sera cena"', does: "Evento alle 20:00" },
         { say: '"Non dimenticare di pagare la bolletta"', does: "Task" },
         { say: '"Ho fatto la spesa"', does: "Segna fatto il task \"spesa\"" },
         { say: '"Cancella dentista"', does: "Elimina il task" },
@@ -8188,6 +8606,9 @@ function renderHelp() {
       commands: [
         { say: '"Crea lista della spesa"', does: "Nuova lista" },
         { say: '"Aggiungi pane alla spesa"', does: "Aggiunge voce" },
+        { say: '"Aggiungi latte, pane e uova alla spesa"', does: "Più voci in una volta" },
+        { say: '"Ho preso il latte"', does: "Spunta la voce dalla lista" },
+        { say: '"Togli il pane dalla spesa"', does: "Rimuove la voce" },
         { say: '"Metti latte nella lista spesa"', does: "Aggiunge voce" },
         { say: '"Spunta pane dalla spesa"', does: "Segna fatto" },
         { say: '"Modifica pane in pane integrale nella spesa"', does: "Modifica voce" },
@@ -8429,6 +8850,7 @@ auth.onAuthStateChanged(user => {
       Prefs.pull();               // sync from Firebase in background
       Geofence.start();           // resume any pending geofence triggers (#3)
       render();
+      handleLaunchParams();       // scorciatoie Android, condivisione, azioni dalle notifiche
 
       if (!localStorage.getItem("teto-seen-onboarding")) {
         setTimeout(() => {
