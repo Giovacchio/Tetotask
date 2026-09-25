@@ -1,24 +1,30 @@
 {
+  "id": "./",
   "name": "TetoTask",
   "short_name": "TetoTask",
-  "description": "Una semplice app per gestire liste e promemoria.",
+  "description": "Teto ti ricorda le cose da fare: task, promemoria, eventi e liste, anche a voce.",
+  "lang": "it",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#ffffff",
+  "orientation": "portrait",
+  "background_color": "#fff5f6",
   "theme_color": "#ff4271",
+  "categories": ["productivity", "lifestyle"],
   "icons": [
-    {
-      "src": "./icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "./icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
-  ]
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "./icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Nuovo task", "short_name": "Nuovo", "url": "./?open=new", "icons": [{ "src": "./icon-192.png", "sizes": "192x192" }] },
+    { "name": "Calendario", "short_name": "Calendario", "url": "./?open=calendar", "icons": [{ "src": "./icon-192.png", "sizes": "192x192" }] },
+    { "name": "Liste", "short_name": "Liste", "url": "./?open=lists", "icons": [{ "src": "./icon-192.png", "sizes": "192x192" }] }
+  ],
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "params": { "title": "share_title", "text": "share_text", "url": "share_url" }
+  }
 }

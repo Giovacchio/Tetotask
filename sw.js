@@ -1,10 +1,12 @@
-const CACHE_NAME = "tetotask-v7";
+const CACHE_NAME = "tetotask-v8";
 const ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
   "./icon-192.png",
-  "./icon-512.png"
+  "./icon-512.png",
+  "./icon-maskable-192.png",
+  "./icon-maskable-512.png"
 ];
 
 self.addEventListener("install", (event) => {
@@ -69,16 +71,23 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-// Tocco sulla notifica: riapre (o porta in primo piano) TetoTask
+// Tocco sulla notifica o sui suoi pulsanti (✓ Fatto / ⏰ +10 min)
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || self.registration.scope;
+  const data = event.notification.data || {};
+  const action = event.action;            // "" = tocco sul corpo della notifica
+  const scope = self.registration.scope;
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
-      for (const w of wins) {
-        if (w.url.startsWith(self.registration.scope) && "focus" in w) return w.focus();
+      const win = wins.find((w) => w.url.startsWith(scope));
+      if (action && data.taskId) {
+        // L'app è aperta (anche in background): esegue l'azione senza portarla davanti
+        if (win) { win.postMessage({ type: "notif-action", action, taskId: data.taskId }); return; }
+        // App chiusa: la apre e le passa l'azione nell'URL
+        return self.clients.openWindow(scope + "?notif=" + encodeURIComponent(action) + "&task=" + encodeURIComponent(data.taskId));
       }
-      return self.clients.openWindow(target);
+      if (win && "focus" in win) return win.focus();
+      return self.clients.openWindow(data.url || scope);
     })
   );
 });
