@@ -3589,10 +3589,28 @@ function nextHoliday(month, day) {
   if (thisYear.getTime() >= today0.getTime()) return thisYear;
   return new Date(now.getFullYear() + 1, month, day, 0, 0, 0, 0);
 }
+function easterDate(y) {             // algoritmo di Gauss/Meeus (calendario gregoriano)
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451), month = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(y, month - 1, day);
+}
+function nextMovable(offsetDays) {
+  const today0 = new Date(); today0.setHours(0,0,0,0);
+  for (let y = today0.getFullYear(); y <= today0.getFullYear() + 1; y++) {
+    const d = easterDate(y); d.setDate(d.getDate() + offsetDays);
+    if (d >= today0) return d;
+  }
+  return easterDate(today0.getFullYear() + 1);
+}
 function findHoliday(q) {
   const n = String(q || "").toLowerCase()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z\s]/g, "").trim();
+  if (/pasquetta|lunedi\s*dell'?\s*angelo/.test(n)) return { date: nextMovable(1), name: "Pasquetta 🧺" };
+  if (/pasqua/.test(n))                     return { date: nextMovable(0), name: "Pasqua 🐣" };
+  if (/carnevale|martedi\s*grasso/.test(n)) return { date: nextMovable(-47), name: "Carnevale 🎭" };
   if (/natal/.test(n))                       return { date: nextHoliday(11, 25), name: "Natale 🎄" };
   if (/capodanno|san\s*silvestro/.test(n))   return { date: nextHoliday(0, 1),   name: "Capodanno 🎆" };
   if (/epifania|befana/.test(n))             return { date: nextHoliday(0, 6),   name: "Epifania 🧙" };
@@ -4327,9 +4345,9 @@ function normalizeVoiceInput(raw) {
 
   // 3c. Tutti i modi di chiedere un promemoria → "ricordami ..."
   s = s.replace(/^(?:mi\s+)?(?:ricorderesti|ricordarmi)\s+/i, "ricordami ");
-  s = s.replace(/^mi\s+ricordi\s+(?=\S)/i, "ricordami ");
+  if (!/\?\s*$/.test(s)) s = s.replace(/^mi\s+ricordi\s+(?=\S)/i, "ricordami ");   // "mi ricordi il nome…?" è una domanda
   s = s.replace(/^(?:mi\s+devi\s+ricordare|mi\s+devo\s+ricordare|devo\s+ricordarmi|mi\s+serve\s+ricordare|non\s+farmi\s+dimenticare)\s+/i, "ricordami ");
-  s = s.replace(/^ricordati\s+(?=di\s|domani|oggi|stasera|tra\s|fra\s)/i, "ricordami ");
+  s = s.replace(/^ricordati\s+(?=di\s(?!me\b)|domani|oggi|stasera|tra\s|fra\s)/i, "ricordami ");
   s = s.replace(/^segna(?:mi|ti)\s+(?:di\s+)?(?!in\s|nel\s|sul\s)/i, "ricordami di ");
   s = s.replace(/^(?:avvisami|fammi\s+sapere)\s+(?=di\s|quando\s|domani|oggi|stasera)/i, "ricordami ");
 
@@ -4415,8 +4433,14 @@ function detectIntent(rawText) {
   if (!t) return { kind: "chat", text: "ciao" };
 
   // ─── UNDO ───────────────────────────────────────────────
-  if (/^(?:annulla(?:\s+(?:ultima|l'ultima))?|ripristina|recupera|ritenta|riprendi|rimetti)\b/i.test(lower)) {
+  if (/^(?:annulla(?:\s+(?:(?:l'\s*)?ultim[ao](?:\s+(?:cosa|azione|comando))?|quello\s+che\s+ho\s+fatto|tutto))?|ripristina(?:lo|la)?|recupera(?:lo|la)?|rimettilo|rimettila|torna\s+come\s+prima|annulla\s+l'ultima\s+cosa)\s*[?!.]*$/i.test(lower)) {
     return { kind: "undo" };
+  }
+  // "annulla la riunione" → cancella l'evento (con conferma); "annulla l'abbonamento" → è un task
+  if ((m = t.match(/^annulla(?:re)?\s+(.+)$/i))) {
+    const q = stripArticles(m[1].replace(/^(?:l'\s*)?(?:evento|appuntamento|impegno)\s+/i, "").replace(/^(?:dal|dalla|con)\s+/i, ""));
+    if (typeof Calendar !== "undefined" && Calendar.findByTitle(q.toLowerCase())) return { kind: "delete_task", query: q };
+    return taskFromText(t, t);
   }
 
   // ─── EXPLICIT PREFIXES (user forces type) ───────────────
@@ -4427,6 +4451,9 @@ function detectIntent(rawText) {
     return parseEventIntent(t.replace(/^(?:evento|appuntamento|impegno)\s*[:\s]+/i, ""));
   }
   // "metti in calendario X" / "segna in agenda X" / "crea un evento X" / "fissa un appuntamento X"
+  if ((m = t.match(/^(?:metti|segna|aggiungi|inserisci|salva|scrivi)\s+(.+?)\s+(?:in|nel|al|sul|nell')\s*(?:calendario|agenda)\b\s*(.*)$/i))) {
+    return parseEventIntent((m[1] + " " + m[2]).trim());
+  }
   if ((m = t.match(/^(?:metti|segna|aggiungi|inserisci|salva|scrivi)\s+(?:in|nel|al|sul|nell')\s*(?:calendario|agenda)\s+(.+)/i)) ||
       (m = t.match(/^(?:crea|fissa|aggiungi|nuovo|metti|segna|prendi)\s+(?:un\s+|l'\s*|nuovo\s+)?(?:evento|appuntamento|impegno)\s*:?\s+(?:per\s+)?(.+)/i))) {
     return parseEventIntent(m[1]);
@@ -4446,7 +4473,7 @@ function detectIntent(rawText) {
   }
 
   // ─── HELP ───────────────────────────────────────────────
-  if (/^(?:aiuto|aiutami|help|come\s+si\s+usa|cosa\s+(?:puoi|sai)\s+fare|comandi|che\s+comandi|come\s+funzioni|istruzioni|guida)\b/i.test(lower) ||
+  if (/^(?:aiuto|aiutami|help|come\s+si\s+usa|come\s+ti\s+uso|cosa\s+(?:puoi|sai)\s+fare|comandi|che\s+comandi|come\s+funzioni|istruzioni|guida)(?:\s+teto)?\s*[?!.]*$/i.test(lower) ||
       /^(?:non\s+so\s+(?:cosa|che)\s+dire|cosa\s+ti\s+posso\s+chiedere)\b/i.test(lower)) {
     return { kind: "help" };
   }
@@ -4487,7 +4514,7 @@ function detectIntent(rawText) {
   }
 
   // ─── SMART PLAN (#1) ────────────────────────────────────
-  if (/^(?:pianifica(?:mi|temi|rmi)?(?:\s+la)?(?:\s+giornata|\s+oggi)?|organizza(?:mi|temi)?(?:\s+la)?(?:\s+giornata|\s+oggi)?|programma(?:mi)?(?:\s+la)?(?:\s+giornata|\s+oggi)?|fammi\s+(?:un\s+)?piano(?:\s+per\s+oggi)?|piano\s+(?:per\s+)?oggi|cosa\s+faccio\s+oggi)\b/i.test(lower)) {
+  if (/^(?:(?:pianifica|organizza|programma)(?:mi|temi|rmi)?(?:\s+(?:la\s+(?:mia\s+)?giornata|la\s+giornata\s+di\s+oggi|oggi|la\s+mia\s+giornata))?|fammi\s+(?:un\s+)?piano(?:\s+per\s+oggi)?|piano\s+(?:per\s+)?oggi|cosa\s+faccio\s+oggi)\s*[?!.]*$/i.test(lower)) {
     return { kind: "plan_day" };
   }
 
@@ -4502,6 +4529,9 @@ function detectIntent(rawText) {
   }
 
   // ─── PREFERENCES: FORGET (#6) ───────────────────────────
+  if (/^(?:dimentica(?:ti)?\s+(?:tutto(?:\s+di\s+me)?|di\s+me)|scordati\s+di\s+me|cancella\s+(?:tutta\s+la\s+)?(?:tua\s+)?memoria|svuota\s+(?:la\s+)?memoria)\s*[?!.]*$/i.test(lower)) {
+    return { kind: "pref_clear" };
+  }
   if ((m = lower.match(/^(?:dimentica(?:ti)?(?:\s+(?:che|di))?|scorda(?:ti)?(?:\s+(?:che|di))?|cancella\s+(?:dalla\s+memoria|il\s+ricordo|che))\s+(.+)/i))) {
     return { kind: "pref_remove", text: m[1].trim() };
   }
@@ -4510,12 +4540,13 @@ function detectIntent(rawText) {
   }
 
   // ─── PREFERENCES: LIST (#6) ─────────────────────────────
+  if (/^(?:ti\s+)?ricord(?:ati|i|a)\s+di\s+me\s*[?!.]*$/i.test(lower)) return { kind: "pref_list" };
   if (/^(?:cosa\s+(?:ricordi|sai)\s+(?:di\s+me)?|cosa\s+ti\s+ricordi|che\s+(?:cosa\s+)?(?:ricordi|sai)\s+di\s+me|mostra(?:mi)?\s+(?:la\s+)?memoria|le\s+tue\s+memorie|memoria)\b/i.test(lower)) {
     return { kind: "pref_list" };
   }
 
   // ─── FOCUS MODE (#7) ────────────────────────────────────
-  if (/^(?:modalità\s+focus|focus\s+(?:mode)?|modalità\s+(?:notte|notturna|riposo|silenziosa)|spegni\s+tutto|schermo\s+(?:blocco|spento|nero)|lock\s+screen)\b/i.test(lower)) {
+  if (/^(?:focus|focus\s+mode)\s*[?!.]*$/i.test(lower) || /^(?:modalità\s+focus|attiva\s+(?:il\s+)?focus|modalità\s+(?:notte|notturna|riposo|silenziosa)|spegni\s+tutto|schermo\s+(?:blocco|spento|nero)|lock\s+screen)\b/i.test(lower)) {
     return { kind: "focus_enter" };
   }
   if (/^(?:esci\s+(?:dal\s+)?focus|chiudi\s+(?:il\s+)?focus|riaccendi)\b/i.test(lower)) {
@@ -4562,14 +4593,14 @@ function detectIntent(rawText) {
 
   // ─── CALENDAR: DELETE EVENT (V2) ──────────────────────
   // "cancella/elimina evento X" / "rimuovi X dal calendario"
-  if ((m = lower.match(/^(?:cancella|elimina|togli|rimuovi)\s+(?:l['’]?\s*)?evento\s+(.+)/i)) ||
+  if ((m = lower.match(/^(?:cancella|elimina|togli|rimuovi|disdici)\s+(?:l['’]?\s*|il\s+|un\s+)?(?:evento|appuntamento|impegno)\s+(?:(?:dal|dalla|dallo|con|di|del)\s+)?(.+)/i)) ||
       (m = lower.match(/^(?:cancella|elimina|togli|rimuovi)\s+(.+?)\s+dal\s+calendario\b/i))) {
     return { kind: "event_delete", query: m[1].trim() };
   }
 
   // ─── CALENDAR: MOVE EVENT (V1) ────────────────────────
   // "sposta X a/al Y" — Y can be a date expression
-  if ((m = lower.match(/^(?:sposta(?:re)?|posticipa|rinvia|rimanda|anticipa|metti|cambia)\s+(?:l['’]?\s*evento\s+|l['’]?\s*appuntamento\s+)?(.+?)\s+((?:a|al|alle|all['’]?|ad|per\s+(?:il|la)?|di)\s+.+)/i))) {
+  if ((m = lower.match(/^(?:sposta(?:re)?|posticipa|rinvia|rimanda|anticipa|cambia\s+(?:data|orario|ora)\s+(?:a|al|del|della|dell')?)\s+(?:l['’]?\s*evento\s+|l['’]?\s*appuntamento\s+)?(.+?)\s+((?:a|al|alle|all['’]?|ad|per\s+(?:il|la)?|di)\s+.+)/i))) {
     const dt = parseDateTime(m[2].replace(/^(?:a|al|ad|di|per)\s+(?!le\s|l['’])/i, ""));
     if (dt && dt.timestamp) {
       const d = new Date(dt.timestamp);
@@ -4580,6 +4611,10 @@ function detectIntent(rawText) {
     }
   }
 
+  // ─── FESTIVITÀ: "quando è Natale" (prima della ricerca negli eventi) ──
+  if ((m = lower.match(/^(?:quando\s+(?:è|c'?\s*è|cade|arriva)|quanto\s+manca(?:no)?\s+(?:(?:alla|al|a)\s+|all'))\s*(.+?)[?!.]*$/i)) && findHoliday(m[1]) && !Calendar.findByTitle(stripArticles(m[1]))) {
+    return { kind: "countdown", holiday: m[1].trim() };
+  }
   // ─── CALENDAR: QUERY EVENT (V3) ───────────────────────
   // "quando ho X?" / "che giorno è X?" / "a che ora è X"
   if ((m = lower.match(/^(?:quando\s+(?:ho|c['’]?\s*è|è)|che\s+giorno\s+(?:è|cade)|a\s+che\s+ora\s+(?:è|c['’]?\s*è|ho))\s+(?:l['’]?\s*evento\s+)?(.+?)[?!.]*$/i))) {
@@ -4604,12 +4639,13 @@ function detectIntent(rawText) {
   // ─── LIST: REMOVE ITEM ("togli il latte dalla spesa") ────
   if ((m = t.match(/^(?:togli(?:ere)?|rimuovi|rimuovere|leva(?:re)?|cancella(?:re)?|elimina(?:re)?|butta\s+via)\s+(.+?)\s+(?:dalla|dal|dalle|dai|dagli|dallo)\s+(?:lista\s+(?:della\s+|dei\s+|del\s+|delle\s+)?)?(.+)$/i))) {
     const ln = normalizeListRef(stripArticles(m[2]));
+    if (/^tutt[oie](?:\s+(?:le\s+voci|quanto))?$/i.test(m[1].trim())) return { kind: "list_clear", name: ln };
     if (Lists.findByName(ln)) return { kind: "list_remove", items: splitListItems(m[1]), item: stripArticles(m[1]), listName: ln };
   }
 
   // ─── LIST: CHECK ITEM (V-2) ──────────────────────────────
   // "spunta/segna X dalla/nella lista Y" / "spunta X" (one list match)
-  if ((m = t.match(/^(?:spunta|segna(?:re)?(?:\s+come\s+(?:fatt|pres)[oa])?|completa(?:re)?|fatto)\s+(.+?)\s+(?:dalla|nella|nelle|della|dalle|sulla|in|dal)\s+(?:lista\s+)?(.+)/i))) {
+  if ((m = t.match(/^(?:spunta|segna(?:re)?\s+come\s+(?:fatt|pres|comprat)[oaie]|completa(?:re)?|fatto)\s+(.+?)\s+(?:dalla|nella|nelle|della|dalle|sulla|in|dal)\s+(?:lista\s+)?(.+)/i))) {
     return { kind: "list_check", item: stripArticles(m[1].trim()), listName: stripArticles(m[2]) };
   }
   // "ho preso il latte" / "preso il latte" / "comprato il pane" / "spunta latte" → voce di una lista
@@ -4628,6 +4664,9 @@ function detectIntent(rawText) {
   // "svuota la lista X" / "cancella tutte le voci della lista X"
   if ((m = lower.match(/^(?:svuota(?:re)?|pulis(?:ci|cire))\s+(?:la\s+)?lista\s+(.+)/i))) {
     return { kind: "list_clear", name: stripArticles(m[1]) };
+  }
+  if ((m = lower.match(/^(?:cancella|togli|elimina|rimuovi|leva)\s+tutt[oie](?:\s+(?:le\s+voci|quanto))?\s+(?:dalla|dal|dai|dalle)\s+(?:lista\s+(?:della\s+|dei\s+|del\s+)?)?(.+)$/i))) {
+    return { kind: "list_clear", name: normalizeListRef(stripArticles(m[1])) };
   }
   if ((m = lower.match(/^(?:svuota(?:re)?|azzera)\s+(.+)$/i)) && Lists.findByName(normalizeListRef(stripArticles(m[1])))) {
     return { kind: "list_clear", name: normalizeListRef(stripArticles(m[1])) };
@@ -4650,7 +4689,7 @@ function detectIntent(rawText) {
 
   // ─── LIST: ADD ───────────────────────────────────────────
   // "aggiungi X alla/nella lista Y"
-  const LADD = "(?:aggiung(?:i|imi|ere|ermi|iamo)|mett(?:i|imi|ere|ermi|iamo)|inseris(?:ci|cere|cimi|cermi)|salva(?:re|mi|rmi)?|scriv(?:i|ere|imi|ermi)|segna(?:re|mi|rmi)?|annota(?:re|mi|rmi)?|appunta(?:re|mi|rmi)?)";
+  const LADD = "(?:aggiung(?:i|imi|ere|ermi|iamo)|(?:ri)?mett(?:i|imi|ere|ermi|iamo)|inseris(?:ci|cere|cimi|cermi)|salva(?:re|mi|rmi)?|scriv(?:i|ere|imi|ermi)|segna(?:re|mi|rmi)?|annota(?:re|mi|rmi)?|appunta(?:re|mi|rmi)?)";
   const mkAdd = (itemsStr, listName) => { const items = splitListItems(itemsStr); return { kind: "list_add", items, item: items.join(", "), listName }; };
   if ((m = t.match(new RegExp(`^${LADD}\\s+(.+?)\\s+(?:alla|nella|in|sulla|sul|nel|al)\\s+lista\\s+(?:della\\s+|dei\\s+|del\\s+|delle\\s+|degli\\s+|di\\s+)?(.+)`, "i")))) {
     return mkAdd(m[1], stripArticles(m[2]));
@@ -4674,7 +4713,7 @@ function detectIntent(rawText) {
     if (l && ln.toLowerCase() === l.name.toLowerCase()) return mkAdd(m[2], l.name);
   }
   // "aggiungi X a/alla/al Y" (no "lista" word) — route to list_add if Y matches a known list
-  if ((m = lower.match(/^(?:aggiung(?:i|imi|ere|ermi)|mett(?:i|imi|ere|ermi)|inseris(?:ci|cere|cimi)|scriv(?:i|ere|imi|ermi))\s+(.+?)\s+(?:alla|nella|sulla|al|nel|sul|a|in|su|ai|agli|alle|nei|negli|nelle|sui|sugli|sulle)\s+(.+)/i))) {
+  if ((m = t.match(/^(?:aggiung(?:i|imi|ere|ermi)|(?:ri)?mett(?:i|imi|ere|ermi)|inseris(?:ci|cere|cimi)|scriv(?:i|ere|imi|ermi)|segna(?:mi)?|annota(?:mi)?)\s+(.+?)\s+(?:alla|nella|sulla|al|nel|sul|a|in|su|ai|agli|alle|nei|negli|nelle|sui|sugli|sulle)\s+(.+)/i))) {
     const candidate = normalizeListRef(stripArticles(m[2]));
     const commonList = /^(?:spesa|lista\s+della\s+spesa|film|serie(?:\s+tv)?|libri|regali|compiti|valigia|viaggio|ricette|canzoni|musica|idee|cose\s+da\s+comprare)$/i.test(candidate);
     if (Lists.findByName(candidate) || commonList) {
@@ -4706,6 +4745,11 @@ function detectIntent(rawText) {
   }
 
   // ─── TASK: COMPLETE ──────────────────────────────────────
+  if ((m = t.match(/^(?:segna|marca|metti)\s+(.+?)\s+come\s+(?:pres|comprat|vist|lett)[oaie]\s*[!.]*$/i))) {
+    const hit = findListItemFuzzy(stripArticles(m[1]));
+    if (hit) return { kind: "list_check", item: hit.item.text, listName: hit.list.name };
+    return { kind: "complete_task", query: stripArticles(m[1]) };
+  }
   if (!parseDateTime(t) && (m = t.match(/^(?:ho|abbiamo)\s+(?:già\s+|appena\s+)?(\p{L}+(?:at[oaie]|ut[oaie]|it[oaie]|tt[oaie]|st[oaie]|s[oaie]|rt[oaie]))\s+(.+)$/iu)) &&
       !/^(?:fatto|finito|completato|concluso|ultimato)$/i.test(m[1])) {
     const q = m[1] + " " + m[2];
@@ -4716,21 +4760,31 @@ function detectIntent(rawText) {
   // "ho fatto X" / "ho finito X" / "ho completato X" / "fatto X" / "finito X" / "completa X" / "segna (come) fatto X"
   if ((m = lower.match(/^(?:ho\s+(?:fatto|finito|completato|concluso|ultimato))\s+(.+)/i)) ||
       (m = lower.match(/^(?:fatto|finito|completato|completata|completare|completa(?:mi)?)\s+(.+)/i)) ||
-      (m = lower.match(/^(?:segna(?:mi|re)?|marca(?:mi|re)?|spunta)\s+(?:come\s+)?(?:fatto|finito|completato)\s+(.+)/i)) ||
+      (m = lower.match(/^(?:segna(?:mi|re)?|marca(?:mi|re)?|spunta)\s+(?:come\s+)?(?:fatt[oaie]|finit[oaie]|completat[oaie])\s+(.+)/i)) ||
       (m = lower.match(/^(?:segna|marca|spunta)\s+(.+?)\s+(?:come\s+)?(?:fatt[oaie]|finit[oaie]|completat[oaie])\b/i))) {
     return { kind: "complete_task", query: stripArticles(m[1]) };
   }
 
   // ─── TASK: DELETE ────────────────────────────────────────
   // Careful: "cancella lista X" already handled above
-  if ((m = lower.match(/^(?:cancella(?:mi)?|elimina(?:mi)?|rimuovi|togli|toglimi|leva(?:mi)?|levami|butta(?:\s+via)?)\s+(?:(?:il|la|lo|i|le|gli|l')\s+)?(?:task\s+|promemoria\s+|impegno\s+)?(.+)/i))) {
-    return { kind: "delete_task", query: stripArticles(m[1]) };
+  if ((m = lower.match(/^(?:cancella(?:mi)?|elimina(?:mi)?|rimuovi|togli|toglimi|leva(?:mi)?|levami|butta(?:\s+via)?)\s+(?:(?:il|la|lo|i|le|gli|l')\s*)?(?:task\s+|promemoria\s+|impegno\s+)?(?:(?:del|della|dello|di)\s+)?(.+)/i))) {
+    const q = stripArticles(m[1]);
+    if (!findTaskFuzzy(q, { includeDone: true })) {
+      const hit = findListItemFuzzy(q, { onlyOpen: false });
+      if (hit) return { kind: "list_remove", items: [hit.item.text], item: hit.item.text, listName: hit.list.name };
+      const lst = Lists.findByName(q);
+      if (lst && lst.name.toLowerCase() === q.toLowerCase()) return { kind: "list_delete", name: lst.name };
+    }
+    return { kind: "delete_task", query: q };
   }
   if ((m = lower.match(/^non\s+(?:voglio|mi\s+serve)\s+(?:più|pi[uù])\s+(.+)/i))) {
     return { kind: "delete_task", query: stripArticles(m[1]) };
   }
 
   // ─── SUMMARY / AGENDA ────────────────────────────────────
+  if ((m = lower.match(/^(?:chi|cosa|che\s+cosa)\s+(?:devo|dovrei)\s+(?:chiamare|sentire|vedere|pagare|fare|comprare)\s+(oggi|stasera|domani|questa\s+settimana)\s*[?!.]*$/i)) && !/comprare/.test(m[0])) {
+    return { kind: "summary", when: m[1] };
+  }
   if (/^(?:che|quali)\s+(?:programmi|piani|impegni|appuntamenti)\s+(?:ho|abbiamo)\b/i.test(lower)) {
     const w = lower.match(/\b(oggi|stasera|domani|questa\s+settimana)\b/);
     return { kind: "summary", when: w ? w[1] : "oggi" };
@@ -4743,7 +4797,8 @@ function detectIntent(rawText) {
   //  "cosa devo fare", "che ho da fare", "che impegni ho", "cosa c'è in agenda", "agenda", "riassunto"
   if (/^(?:cosa|che\s+cosa|che|cos')\s+(?:devo|dovrei|ho\s+da|ho\s+in|c'?è\s+da|c'?è|abbiamo|abbiam)\s+(?:fare|da\s+fare|in\s+programma|in\s+agenda|programma|agenda|oggi|domani)?/i.test(lower) ||
       /^(?:che|quali)\s+(?:impegni|cose|task|appuntament[oi])\s+(?:ho|abbiamo)/i.test(lower) ||
-      /^(?:agenda|riassunto|programma|impegni|dimmi\s+(?:l'?)?agenda)/i.test(lower) ||
+      /^(?:agenda|riassunto|programma|impegni|dimmi\s+(?:l'?)?agenda)(?:\s+(?:di|per)\s+(?:oggi|domani|stasera|questa\s+settimana)|\s+(?:oggi|domani))?\s*[?!.]*$/i.test(lower) ||
+      /^(?:mostrami|dimmi|fammi\s+vedere|leggimi|elencami)\s+(?:cosa|che\s+cosa|quello\s+che)\s+(?:devo|ho\s+da)\s+fare\b/i.test(lower) ||
       /^dimmi\s+(?:cosa|che\s+cosa|che\s+)?(?:devo|ho\s+da)\s+fare/i.test(lower) ||
       /^leggi(?:mi)?\s+(?:l'?)?agenda/i.test(lower) ||
       /^(?:ho|c'?è|abbiamo)\s+(?:qualcosa|qualche\s+impegno|impegni)\s+(?:oggi|domani|per\s+oggi|per\s+domani)?/i.test(lower)) {
@@ -4766,7 +4821,7 @@ function detectIntent(rawText) {
   if (/^impostazioni\s*$/i.test(lower))                 return { kind: "open", target: "settings" };
 
   // ─── NAVIGATION: CLOSE ───────────────────────────────────
-  if (/^(?:chiudi|esci|torna\s+indietro|indietro|basta|stop)\b/i.test(lower)) {
+  if (/^(?:chiudi|esci|torna\s+indietro|indietro|stop|ok\s+chiudi)(?:\s+(?:tutto|qui|il\s+calendario|il\s+pannello|le\s+liste|la\s+lista|l'agenda|le\s+impostazioni|l'aiuto|questa\s+schermata|da\s+qui))?\s*[?!.]*$/i.test(lower)) {
     return { kind: "close" };
   }
 
@@ -4790,7 +4845,7 @@ function detectIntent(rawText) {
   // ─── CANCEL / STOP (mid-conversation, user wants to abort) ───
   // Must come before chat so "no fa nulla" isn't mistaken for a greeting
   if (/^(?:aspetta(?:\s+un\s+(?:po'?|attimo|secondo))?|lascia\s+(?:stare|perdere)|non\s+importa|niente|fa\s+niente|fa\s+nulla|no[,.\s]+(?:fa\s+)?(?:niente|nulla)|no[,.\s]+lascia\s+stare|scusa[,.\s]+niente|scusami[,.\s]+niente|ho\s+sbagliato|stavo\s+scherzando|nulla|zitt[ao])\b/i.test(lower) ||
-      /^basta\s*$/i.test(lower) ||
+      /^(?:basta|basta\s+così|ok\s+basta|lascia\s+così|va\s+bene\s+così)\s*[?!.]*$/i.test(lower) ||
       /^no\s*[,.!?]?\s*$/i.test(lower)) {
     return { kind: "cancel" };
   }
@@ -4825,6 +4880,9 @@ function detectIntent(rawText) {
     const cm = lower.match(/\b(?:a|in)\s+([a-zàèéìòù' ]{3,30})$/i);
     return { kind: "weather", city: cm && !/^(?:oggi|domani)$/.test(cm[1]) ? cm[1].trim() : null, when: /\bdomani\b/.test(lower) ? "tomorrow" : "now" };
   }
+  if ((m = lower.match(/^(?:che\s+tempo\s+(?:fa|farà|fara|ci\s+sarà)|com'?\s*è\s+il\s+tempo|come\s+sarà\s+il\s+tempo|meteo)\s+(oggi|domani|stasera)(?:\s+(?:a|in|su)\s+(.+))?\s*[?!.]*$/i))) {
+    return { kind: "weather", city: m[2] ? m[2].trim() : null, when: m[1] === "domani" ? "tomorrow" : "now" };
+  }
   if ((m = lower.match(/^(?:che\s+tempo\s+fa|com'?è\s+il\s+tempo|come\s+è\s+il\s+tempo|che\s+tempo\s+c'?è|piove|sta\s+piovendo|fa\s+caldo|fa\s+freddo|c'?è\s+il\s+sole|meteo)(?:\s+(?:a|in|su)\s+(.+))?$/i))) {
     return { kind: "weather", city: m[1] ? m[1].trim() : null, when: "now" };
   }
@@ -4839,7 +4897,8 @@ function detectIntent(rawText) {
   if ((m = lower.match(/^(?:quanto\s+(?:fa|è|sono|vale|viene|fanno)|calcola(?:mi|temi)?|fammi\s+il\s+conto\s+di|fai(?:mi)?(?!\s+partire)|risolvi(?:mi)?|qual\s+è\s+il\s+risultato\s+di|il\s+risultato\s+di|risultato\s+di|somma\s+(?:di|tra|fra)|prodotto\s+(?:di|tra|fra)|differenza\s+(?:di|tra|fra)|fa)\s+(.+)/i))) {
     const result = computeMath(m[1]);
     if (result !== null) return { kind: "math", expr: m[1].trim(), result };
-    return { kind: "unknown_question", topic: "math" };
+    if (/\d/.test(m[1]) && /^(?:quanto|calcola|risolvi)/i.test(lower)) return { kind: "unknown_question", topic: "math" };
+    // niente numeri → non è un calcolo: prosegue (es. "fai la spesa" = task)
   }
   if (/^\d+(?:[.,]\d+)?\s+(?:più|piu|meno|per|diviso|fratto|x|volte)\s+\d/i.test(lower)) {
     const result = computeMath(t);
@@ -4872,7 +4931,7 @@ function detectIntent(rawText) {
     }
   }
   // TIMER — "metti un timer di 5 minuti"
-  if ((m = lower.match(/^(?:metti(?:mi)?|imposta(?:mi)?|avvia(?:mi)?|parti\s+con|fai\s+partire|fammi)?\s*(?:un\s+)?timer\s+(?:di\s+|per\s+|a\s+)?(.+)/i)) ||
+  if ((m = lower.match(/^(?:metti(?:mi)?|imposta(?:mi)?|avvia(?:mi)?|parti\s+con|fai\s+partire|fammi)?\s*(?:un\s+|il\s+|lo\s+)?timer\s+(?:di\s+|da\s+|per\s+|a\s+)?(.+)/i)) ||
       (m = lower.match(/^timer\s+(.+)/i))) {
     const ms = parseDuration(m[1]);
     if (ms && ms > 0 && ms < 24*3600*1000) {
@@ -4903,9 +4962,10 @@ function detectIntent(rawText) {
   }
 
   // COUNTDOWN — "quanti giorni a/al/mancano a X" / "quando è X"
-  if ((m = lower.match(/^quant[ie]\s+giorni?\s+(?:a|al|alla|allo|ai|agli|alle|per|mancano\s+a|mancano\s+al|mancano\s+alla|c'?è\s+a|c'?è\s+al|c'?è\s+alla)\s+(.+)/i)) ||
-      (m = lower.match(/^(?:quando\s+è|quando\s+c'?è)\s+(.+)/i))) {
-    return { kind: "countdown", holiday: m[1].trim() };
+  if ((m = lower.match(/^(?:quant[ie]\s+giorni?\s+(?:mancano\s+|manca\s+|ci\s+sono\s+|c'?è\s+)?|quanto\s+manca(?:no)?\s+|manca\s+molto\s+)(?:(?:alla|allo|alle|agli|al|ai|a|per)\s+|all')(.+?)[?!.]*$/i))) {
+    const q = stripArticles(m[1].trim());
+    if (!findHoliday(q) && Calendar.findByTitle(q)) return { kind: "event_query", query: q };
+    return { kind: "countdown", holiday: q };
   }
 
   // QUOTES — "dimmi qualcosa/una frase/una citazione/stupiscimi"
@@ -4918,7 +4978,7 @@ function detectIntent(rawText) {
   }
 
   // QUESTIONS WE STILL CAN'T ANSWER
-  if (/^(?:cerca|googla|google|cerca\s+su\s+internet|trova\s+su\s+internet)\b/i.test(lower)) {
+  if (/^(?:googla|google)\b|^(?:cerca|trova)\s+(?:su\s+(?:internet|google|web)|online|in\s+rete|sul\s+web)\b|\b(?:su\s+google|su\s+internet)\s*[?!.]*$/i.test(lower) && !/^(?:devo|ricordami)/i.test(lower)) {
     return { kind: "unknown_question", topic: "search" };
   }
 
@@ -4927,7 +4987,7 @@ function detectIntent(rawText) {
   // Tasks: action verbs ("comprare", "chiamare", etc.) OR just "ricordami di X"
   const eventKeywords = /\b(appuntament[oi]|incontr[oi]|riunion[ei]|meeting|call|colloqui[oi]|cena|pranzo|aperitivo|brunch|visita|esame|partit[ae]|concerto|compleanno|matrimonio|battesimo|anniversario|festa|cinema|teatro|viaggio|volo|treno|conferenza|spettacolo|vacanza|gita|uscita|serata|cena|cenetta|ritrovo|ritrovarci|vedere|andare|andiamo|vado|vai|va\s+a|usciamo|esco|film)\b/i;
   // Clear task-oriented verbs: these should stay as task even with date+time
-  const clearTaskVerb = /^\s*(?:compra(?:re|mi)?|prendi|prendere|chiama(?:re)?|telefona(?:re)?|scrivi|scriver|invia(?:re)?|manda(?:re)?|paga(?:re)?|rinnova(?:re)?|prenota(?:re)?|ordina(?:re)?|controlla(?:re)?|verifica(?:re)?|finisci|finire|studia(?:re)?|lavora(?:re)?|pulisc|pulire|porta(?:re)?|preparar)\b/i;
+  const clearTaskVerb = /^\s*(?:compra(?:re|mi)?|prendi|prendere|chiama(?:re)?|telefona(?:re)?|scrivi|scriver|invia(?:re)?|manda(?:re)?|paga(?:re)?|rinnova(?:re)?|prenota(?:re)?|ordina(?:re)?|controlla(?:re)?|verifica(?:re)?|finisci|finire|studia(?:re)?|lavora(?:re)?|pulisc|pulire|porta(?:re)?|preparar|programma(?:re)?|imposta(?:re)?|accendi|accendere|spegni|spegnere|ritira(?:re)?|restituisci|restituire|rispondi|rispondere)\b/i;
 
   const hasDate = parseDateTime(t);
 
@@ -4978,7 +5038,7 @@ function detectIntent(rawText) {
   // → route to unknown_question. Never silently convert a question into a task.
   // Use (space|$) instead of \b because \b breaks on non-ASCII like é/ì/ù.
   const startsWithQuestion = /^(?:cosa|che\s+cosa|che|come|dove|quando|perch[eéè]|perche|chi|quale|quali|quanto|quanta|quanti|quante)(?:\s|$)/i.test(lower);
-  const endsWithQ = /\?\s*$/.test(t);
+  const endsWithQ = /\?\s*$/.test(String(rawText || ""));   // il "?" viene tolto dalla normalizzazione: guardo la frase originale
   const hasActionVerb = /\b(compra(?:re)?|chiama(?:re)?|telefona(?:re)?|manda(?:re)?|scriv(?:i|ere)|leggi|legger|prendi|prender|porta(?:re)?|vai|andare|fare|fatto|preparare|prepara|studiare|studia|lavorare|lavora|pulire|pulisci|pagare|paga|cucinare|cucina|mangiare|mangia|bere|bevi|comprar|prenotare|prenota|inviare|invia|rispondere|rispondi|controllare|controlla|verificare|verifica|organizzare|organizza|finire|finir|iniziare|inizia|cominciare|comincia|provare|prova|ordinare|ordina|rinnovare|rinnova)\b/i.test(lower);
 
   if ((startsWithQuestion || endsWithQ) && !hasActionVerb) {
@@ -4986,7 +5046,7 @@ function detectIntent(rawText) {
   }
 
   // Interiezioni / parole vuote → chiedi chiarimento invece di creare un task
-  if (words.length <= 2 && /^(?:boh|mah|mh+|eh|ah|oh|uff|ok|okay|va\s+bene|sì|si|no|niente|nulla|niente\s+niente|forse|dai|vabbè|vabbe|ciao|hey|ehi)[!?.]*$/i.test(lower)) {
+  if (words.length <= 2 && /^(?:boh|mah|mh+|eh|ah|oh|uff|ok|okay|va\s+bene|sì|si|no|niente|nulla|niente\s+niente|forse|dai|vabbè|vabbe|ciao|hey|ehi|fatto|finito|ok\s+fatto|fatto\s+tutto|perfetto|bene|benissimo)[!?.]*$/i.test(lower)) {
     return { kind: "clarify", original: t };
   }
 
@@ -5370,8 +5430,17 @@ async function executeIntent(intent) {
       return `Eliminato: ${found.event.title}`;
     }
     case "event_move": {
+      // Prima cerca un TASK con quel nome (es. "sposta la lavatrice a domani"), poi un evento
+      const tk = findTaskFuzzy(intent.query);
+      if (tk && !Calendar.findByTitle(String(intent.query).toLowerCase())) {
+        const [y, mo, d] = intent.dateKey.split("-").map(Number);
+        const [hh, mm] = (intent.time || (tk.reminderAt ? `${new Date(tk.reminderAt).getHours()}:${new Date(tk.reminderAt).getMinutes()}` : "9:00")).split(":").map(Number);
+        const at = new Date(y, mo - 1, d, hh, mm, 0, 0).getTime();
+        await updateTaskInDb(tk.id, { reminderAt: at });
+        return `Ok, "${tk.text}" spostato a ${friendlyWhen(at)} ⏰`;
+      }
       const found = await Calendar.moveByTitle(intent.query, intent.dateKey, intent.time);
-      if (!found) return `Non trovo nessun evento con "${intent.query}"`;
+      if (!found) return `Non trovo nessun evento o task con "${intent.query}"`;
       const [yy, mm, dd] = intent.dateKey.split("-").map(Number);
       const newDate = new Date(yy, mm-1, dd);
       const dayLabel = newDate.toLocaleDateString("it-IT", { weekday:"long", day:"numeric", month:"long" });
