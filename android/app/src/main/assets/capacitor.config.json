@@ -1,0 +1,14 @@
+{
+	"appId": "com.giovacchio.tetotask",
+	"appName": "TetoTask",
+	"webDir": "www",
+	"android": {
+		"backgroundColor": "#fff5f6"
+	},
+	"plugins": {
+		"LocalNotifications": {
+			"smallIcon": "ic_stat_teto",
+			"iconColor": "#ff2f5e"
+		}
+	}
+}

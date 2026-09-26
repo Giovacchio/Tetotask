@@ -1,0 +1,16 @@
+// Moduli nativi inclusi nel progetto (così non serve Node/npm sul PC).
+// Generato per TetoTask: se in futuro usi "npx cap sync", ripristina i percorsi verso node_modules.
+include ':capacitor-android'
+project(':capacitor-android').projectDir = new File('capacitor-libs/capacitor-android')
+
+include ':capacitor-community-speech-recognition'
+project(':capacitor-community-speech-recognition').projectDir = new File('capacitor-libs/capacitor-community-speech-recognition')
+
+include ':capacitor-community-text-to-speech'
+project(':capacitor-community-text-to-speech').projectDir = new File('capacitor-libs/capacitor-community-text-to-speech')
+
+include ':capacitor-app'
+project(':capacitor-app').projectDir = new File('capacitor-libs/capacitor-app')
+
+include ':capacitor-local-notifications'
+project(':capacitor-local-notifications').projectDir = new File('capacitor-libs/capacitor-local-notifications')

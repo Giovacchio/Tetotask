@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">TetoTask</string>
+    <string name="title_activity_main">TetoTask</string>
+    <string name="package_name">com.giovacchio.tetotask</string>
+    <string name="custom_url_scheme">com.giovacchio.tetotask</string>
+</resources>
