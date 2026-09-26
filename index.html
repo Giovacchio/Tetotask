@@ -2086,6 +2086,18 @@ const Native = {
       });
     }
   },
+  // Primo avvio dell'app Android: permesso notifiche (Android 13+) e sveglie esatte
+  async firstRun() {
+    if (!this.P.LN) return;
+    try {
+      const r = await this.P.LN.checkPermissions();
+      this.notifGranted = r.display === "granted";
+      if (!this.notifGranted && !localStorage.getItem("teto-native-asked")) {
+        localStorage.setItem("teto-native-asked", "1");
+        await this.requestPermission();
+      } else { await this.checkExact(); this.scheduleSync(); }
+    } catch(e) {}
+  },
   async checkExact() {
     try { const r = await this.P.LN.checkExactNotificationSetting(); this.exactOk = r.exact_alarm === "granted"; } catch(e) { this.exactOk = true; }
   },
@@ -2151,7 +2163,11 @@ const Native = {
       const pend = await LN.getPending();
       const pendIds = new Set((pend.notifications || []).map(x => x.id));
       const wantIds = new Set(want.map(x => x.id));
-      const toCancel = [...pendIds].filter(id => !wantIds.has(id)).map(id => ({ id }));
+      // Non cancellare gli avvisi appena scaduti: Android può consegnarli con qualche secondo di ritardo
+      const now = Date.now(), recent = new Set();
+      for (const t of state.tasks) if (t.reminderAt && t.reminderAt > now - 180000 && t.reminderAt <= now + 5000) recent.add(this.idFor("t:" + t.id + ":" + t.reminderAt));
+      for (const id of (this._recentTimerIds || [])) recent.add(id);
+      const toCancel = [...pendIds].filter(id => !wantIds.has(id) && !recent.has(id)).map(id => ({ id }));
       if (toCancel.length) await LN.cancel({ notifications: toCancel });
       const toAdd = want.filter(x => !pendIds.has(x.id)).map(x => ({
         id: x.id, title: x.title, body: x.body, channelId: "promemoria",
@@ -3259,6 +3275,7 @@ const Timers = {
     const t = { id, label: label || "timer", endAt, ms, handle };
     this.active.push(t);
     this._save(); this._tick(); requestRender();
+    try { requestNotifPermission(); } catch(e) {}      // senza permesso Android scarta l'avviso
     return t;
   },
   fire(id) {
@@ -3266,6 +3283,7 @@ const Timers = {
     if (i < 0) return;
     const t = this.active[i];
     this.active.splice(i, 1);
+    if (Native.on) { const nid = Native.idFor("tm:" + t.id); Native._recentTimerIds = [...(Native._recentTimerIds || []), nid].slice(-10); setTimeout(() => { Native._recentTimerIds = (Native._recentTimerIds || []).filter(x => x !== nid); }, 180000); }
     this._save();
     try { showBubble(`⏰ Timer ${t.label} finito!`); } catch(e){}
     try { haptic([300, 120, 300]); } catch(e){}
@@ -9524,6 +9542,7 @@ auth.onAuthStateChanged(user => {
       Timers.restore();           // timer sopravvivono al ricaricamento
       render();
       handleLaunchParams();       // scorciatoie Android, condivisione, azioni dalle notifiche
+      if (Native.on) setTimeout(() => Native.firstRun(), 1200);
 
       if (!localStorage.getItem("teto-seen-onboarding")) {
         setTimeout(() => {
