@@ -14,3 +14,6 @@ project(':capacitor-app').projectDir = new File('capacitor-libs/capacitor-app')
 
 include ':capacitor-local-notifications'
 project(':capacitor-local-notifications').projectDir = new File('capacitor-libs/capacitor-local-notifications')
+
+include ':capacitor-firebase-authentication'
+project(':capacitor-firebase-authentication').projectDir = new File('capacitor-libs/capacitor-firebase-authentication')

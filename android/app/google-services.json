@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "653132789863",
+    "project_id": "tetotask-2d509",
+    "storage_bucket": "tetotask-2d509.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:653132789863:android:ad2a2a0f9b67579fe43cc2",
+        "android_client_info": {
+          "package_name": "com.giovacchio.tetotask"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "653132789863-ar32n11f1qod2s6ghq96d8bkkkmuaq01.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.giovacchio.tetotask",
+            "certificate_hash": "08966c417192c8a31bd43f282b957835a914b229"
+          }
+        },
+        {
+          "client_id": "653132789863-6tjq1c60vuq2i7h4nun9q0hc3na30ddm.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCKNdwS3XG4OufBjUObmuW4k0imtnMy8Nw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "653132789863-6tjq1c60vuq2i7h4nun9q0hc3na30ddm.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -9,6 +9,12 @@
 		"LocalNotifications": {
 			"smallIcon": "ic_stat_teto",
 			"iconColor": "#ff2f5e"
+		},
+		"FirebaseAuthentication": {
+			"skipNativeAuth": true,
+			"providers": [
+				"google.com"
+			]
 		}
 	}
 }
