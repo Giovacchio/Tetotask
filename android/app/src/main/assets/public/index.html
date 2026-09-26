@@ -4454,9 +4454,20 @@ function itNum(s) {
   return IT_NUM_WORDS[s] ?? null;
 }
 
+function _fixDayHour(s) {
+  return s.replace(/(^|\s)(oggi|domani|dopodomani|stasera|luned[iìí]|marted[iìí]|mercoled[iìí]|gioved[iìí]|venerd[iìí]|sabato|domenica)\s+(\d{1,2})(?:[:.](\d{2}))?(?![\d/\-.:]|\s*(?:°|º|gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)(?![\p{L}]))/giu, (all, sp, d, h, mi) => {
+    const n = +h; if (n > 23 || n < 1) return all;
+    const wdIdx = IT_WEEKDAYS.findIndex(a => a.includes(d.toLowerCase()));
+    if (wdIdx >= 0 && !mi) {
+      const now = new Date(); const dd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + ((wdIdx - now.getDay() + 7) % 7));
+      for (let k = 0; k < 2; k++) { if (dd.getDate() === n) return all; dd.setDate(dd.getDate() + 7); }
+    }
+    return `${sp}${d} alle ${h}${mi ? ":" + mi : ""}`;
+  });
+}
 function parseDateTime(text) {
   const { L, R, N, NC, MON, WD, PART } = _DT;
-  const src = String(text || "").replace(/[’`´]/g, "'");
+  const src = _fixDayHour(String(text || "").replace(/[’`´]/g, "'"));
   let work = src;
   const found = [];
   const rx = s => new RegExp(s, "iu");
@@ -4689,6 +4700,7 @@ function parseDateTime(text) {
     timestamp: ts, matched: found.join(" "), cleaned,
     hasTime: hour != null || absTs != null || !!part,
     hasExplicitTime: hour != null || (absTs != null),
+    hasDate: base != null,
     repeat,
   };
 }
@@ -4937,6 +4949,12 @@ function detectIntent(rawText) {
     .replace(/^(?:(?:ehi|hey|ok|ciao)\s+)?tet?to[,.\s!?]+/i, "").replace(/[.!?]+$/, "").trim();
 
   // 1) Comandi sull'ULTIMO task ("ricordamelo tra un'ora", "mettilo urgente", "cancellalo", "l'ho fatto")
+  // "spostalo alle 10" / "rimandalo di un'ora": sposta l'ultimo impegno o task, tenendo il suo giorno se dico solo l'ora
+  if (/^(?:spost|rimand|posticip|rinvi|anticip)a(?:l[oaie]|mel[oaie])\s+/.test(rawL)) {
+    const mv = parseMoveCommand(rawL);
+    const lastIsEvent = state.lastAgendaRef && !state.tasks.some(x => x.id === state.lastAgendaRef) && !state.expanded;
+    if (mv && !mv.ref.name && (mv.shiftMs || (mv.time && !mv.dateKey) || (lastIsEvent && (mv.dateKey || mv.time)))) return mv;
+  }
   if ((m = rawL.match(/^(?:ricordamel[oaie]|ricordatel[oaie]|rimandal[oaie]|spostal[oaie]|posticipal[oaie]|rinvial[oaie]|mettimel[oaie])\s+(.+)$/i))) {
     const dt = parseDateTime(m[1]);
     if (dt) return { kind: "task_followup", op: "remind", at: dt.timestamp, repeat: dt.repeat || null };
@@ -5032,6 +5050,10 @@ function detectIntent(rawText) {
   if (/^(?:com'?\s*è|come\s+(?:è|sarà|va))\s+(?:la\s+)?(?:mia\s+)?giornata\b/i.test(lower)) return { kind: "briefing" };
   if (/^(?:che\s+giorno\s+è(?:\s+oggi)?|che\s+giorno\s+è\s+domani|oggi\s+che\s+giorno\s+è|che\s+data\s+è(?:\s+oggi)?)\s*[?!.]*$/i.test(lower)) return { kind: "date_info" };
   if (/^(?:cosa|che\s+cosa|che)\s+c'?\s*è\s+(?:in|nel|sul|nell')\s*(?:agenda|programma|calendario)\b/i.test(lower)) {
+    const tail = lower.replace(/^(?:cosa|che\s+cosa|che)\s+c'?\s*è\s+(?:in|nel|sul|nell')\s*(?:agenda|programma|calendario)\s*/i, "").replace(/[?!.]+$/, "");
+    if (/^(?:(?:nel|questo|il|per\s+il|a)\s+)?(?:weekend|week\s*end|fine\s*settimana)$/i.test(tail)) return { kind: "summary", when: "weekend" };
+    const wd = tail && !/^(?:oggi|stasera|domani|questa\s+settimana|settimana)$/.test(tail) ? parseWhenOnly(tail.replace(/^per\s+/, "")) : null;
+    if (wd && wd.dayKey) return { kind: "summary", when: "giorno", dayKey: wd.dayKey };
     const w = lower.match(/\b(oggi|stasera|domani|questa\s+settimana|settimana)\b/);
     return { kind: "summary", when: w ? (w[1] === "settimana" ? "questa settimana" : w[1]) : "oggi" };
   }
@@ -5117,25 +5139,23 @@ function detectIntent(rawText) {
     }
   }
 
+  // "cancella tutti gli impegni di sabato", "libera la giornata di domani"
+  if ((m = lower.match(/^(?:cancella(?:mi)?|elimina(?:mi)?|togli(?:mi)?|svuota|libera(?:mi)?)\s+(?:tutt[oi]\s+(?:gli\s+impegni|gli\s+appuntamenti|gli\s+eventi|quello\s+che\s+ho)|tutto|l'agenda|la\s+giornata|l'intera\s+giornata)?\s*(?:di|del|della|per|che\s+ho)?\s*(.+?)\s*[?!.]*$/i)) && /tutt|agenda|giornata|^libera/.test(lower.split(/\s+/).slice(0, 3).join(" "))) {
+    const w = parseWhenOnly(m[1]);
+    if (w && w.dayKey) return { kind: "agenda_clear_day", dayKey: w.dayKey };
+  }
   // ─── CALENDAR: DELETE EVENT (V2) ──────────────────────
   // "cancella/elimina evento X" / "rimuovi X dal calendario"
+  if ((m = lower.match(/^(?:cancella(?:mi)?|elimina(?:mi)?|togli(?:mi)?|rimuovi|disdici|annulla)\s+((?:l['’]?\s*|il\s+|un\s+|quell[oa]\s+|quel\s+)?(?:(?:evento|appuntamento|impegno|promemoria)\s+)?(?:di|del|della|dell['’]|delle|per)\s+.+)$/i)) && (() => { const r = parseAgendaRef(m[1]); return !r.name && (r.dayKey || r.time); })()) {
+    return { kind: "event_delete", query: m[1].trim() };
+  }
   if ((m = lower.match(/^(?:cancella|elimina|togli|rimuovi|disdici)\s+(?:l['’]?\s*|il\s+|un\s+)?(?:evento|appuntamento|impegno)\s+(?:(?:dal|dalla|dallo|con|di|del)\s+)?(.+)/i)) ||
       (m = lower.match(/^(?:cancella|elimina|togli|rimuovi)\s+(.+?)\s+dal\s+calendario\b/i))) {
     return { kind: "event_delete", query: m[1].trim() };
   }
 
-  // ─── CALENDAR: MOVE EVENT (V1) ────────────────────────
-  // "sposta X a/al Y" — Y can be a date expression
-  if ((m = lower.match(/^(?:sposta(?:re)?|posticipa|rinvia|rimanda|anticipa|cambia\s+(?:data|orario|ora)\s+(?:a|al|del|della|dell')?)\s+(?:l['’]?\s*evento\s+|l['’]?\s*appuntamento\s+)?(.+?)\s+((?:a|al|alle|all['’]?|ad|per\s+(?:il|la)?|di)\s+.+)/i))) {
-    const dt = parseDateTime(m[2].replace(/^(?:a|al|ad|di|per)\s+(?!le\s|l['’])/i, ""));
-    if (dt && dt.timestamp) {
-      const d = new Date(dt.timestamp);
-      const dKey = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
-      const t = dt.hasExplicitTime
-        ? `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}` : null;
-      return { kind: "event_move", query: stripArticles(m[1].trim()), dateKey: dKey, time: t };
-    }
-  }
+  // ─── CALENDAR/TASK: MOVE ("sposta l'impegno di sabato alle 16", "posticipa la cena di un'ora") ──
+  if ((m = parseMoveCommand(lower))) return m;
 
   // ─── FESTIVITÀ: "quando è Natale" (prima della ricerca negli eventi) ──
   if ((m = lower.match(/^(?:quando\s+(?:è|c'?\s*è|cade|arriva)|quanto\s+manca(?:no)?\s+(?:(?:alla|al|a)\s+|all'))\s*(.+?)[?!.]*$/i)) && findHoliday(m[1]) && !Calendar.findByTitle(stripArticles(m[1]))) {
@@ -5260,6 +5280,7 @@ function detectIntent(rawText) {
     return { kind: "list_read", name: stripArticles(m[1]) };
   }
   if ((m = lower.match(/^(?:cosa|che\s+cosa|che)\s+c'?(?:è|e)\s+(?:nella|sulla|in|sul|nel)\s+(?:lista\s+)?(.+)/i))) {
+    if (/^(?:weekend|week\s*end|fine\s*settimana)$/i.test(stripArticles(m[1])) && !Lists.findByName(stripArticles(m[1]))) return { kind: "summary", when: "weekend" };
     return { kind: "list_read", name: stripArticles(m[1]) };
   }
   // "apri la spesa" / "mostra la spesa" — only if it matches a known list
@@ -5308,6 +5329,23 @@ function detectIntent(rawText) {
   }
 
   // ─── SUMMARY / AGENDA ────────────────────────────────────
+  if ((m = lower.match(/^(.+?)\s+(?:cosa|che\s+cosa|che)\s+(?:ho|abbiamo|c'?\s*è|devo\s+fare|ho\s+da\s+fare|faccio|ho\s+in\s+programma)\s*[?!.]*$/i))) {
+    const w0 = m[1].trim();
+    if (/^(?:oggi|stasera|stamattina|domani|questa\s+settimana)$/.test(w0)) return { kind: "summary", when: w0 };
+    if (/^(?:nel\s+|questo\s+)?(?:weekend|fine\s*settimana)$/.test(w0)) return { kind: "summary", when: "weekend" };
+    const w = parseWhenOnly(w0);
+    if (w && w.dayKey) return { kind: "summary", when: "giorno", dayKey: w.dayKey };
+  }
+  if (/^(?:com'?\s*è|come\s+(?:è|sarà|va))\s+(?:la\s+)?(?:mia\s+|questa\s+)?settimana\b/i.test(lower)) return { kind: "summary", when: "questa settimana" };
+  // Giorno qualsiasi: "cosa ho sabato", "che impegni ho il 3 ottobre", "sono libero venerdì sera?", "cosa c'è nel weekend"
+  if ((m = lower.match(/^(?:(?:cosa|che\s+cosa|che|cos')\s+(?:ho|abbiamo|c'?\s*è|devo\s+fare|ho\s+da\s+fare|ho\s+in\s+programma|c'?\s*è\s+in\s+programma|faccio)|(?:che|quali)\s+(?:impegni|programmi|piani|appuntamenti|cose|eventi|task)\s+(?:ho|abbiamo|ci\s+sono|c'?\s*è)|(?:impegni|agenda|programma|appuntamenti)\s+(?:di|per|del|della)|sono\s+liber[oaie]|ho\s+(?:qualcosa|impegni|da\s+fare)|c'?\s*è\s+qualcosa)\s+(.+?)\s*[?!.]*$/i))) {
+    const rest = m[1].trim().replace(/^(?:in\s+programma|in\s+agenda|da\s+fare|di\s+bello|in\s+calendario)\s+/i, "");
+    if (/^(?:(?:nel|questo|il|per\s+il|a)\s+)?(?:weekend|week\s*end|fine\s*settimana)$/i.test(rest)) return { kind: "summary", when: "weekend" };
+    if (!/^(?:oggi|stasera|stamattina|domani|questa\s+settimana|in\s+settimana|settimana|da\s+fare|in\s+programma|in\s+agenda|fare)$/i.test(rest)) {
+      const w = parseWhenOnly(rest);
+      if (w && w.dayKey) return { kind: "summary", when: "giorno", dayKey: w.dayKey };
+    }
+  }
   if ((m = lower.match(/^(?:chi|cosa|che\s+cosa)\s+(?:devo|dovrei)\s+(?:chiamare|sentire|vedere|pagare|fare|comprare)\s+(oggi|stasera|domani|questa\s+settimana)\s*[?!.]*$/i)) && !/comprare/.test(m[0])) {
     return { kind: "summary", when: m[1] };
   }
@@ -5515,6 +5553,20 @@ function detectIntent(rawText) {
     return { kind: "unknown_question", topic: "search" };
   }
 
+  // ─── VERBI DI CREAZIONE: "metti/segna/inserisci/fissa X sabato alle 17" ──
+  // Il verbo non fa parte del nome: lo tolgo e rianalizzo; "in calendario/evento" → evento, "promemoria/task" → task
+  {
+    const cv = t.match(/^(?:metti(?:mi|ci)?(?!\s+(?:a\s+posto|apposto|in\s+ordine|via|da\s+parte|in\s+carica|in\s+frigo|su\b|giù|a\s+\S+re\b|in\s+lavatrice|a\s+lavare|in\s+forno))|mettere|segna(?:mi|ti|re)?|inserisci(?:mi)?|aggiungi(?:mi)?|fissa(?:mi|re)?|pianifica(?:mi)?|crea(?:mi)?|annota(?:mi)?|registra(?:mi)?|scrivi(?:mi)?(?=\s+(?:di|che)\s)|nuov[oa])\s+(?:(?:in|nel|nella|sul|sulla|sull')\s*(?:calendario|agenda)\s+)?(?:(?:un|una|un'|il|la|lo|l')\s*)?(?:(evento|appuntamento|impegno|promemoria|task|cosa\s+da\s+fare|compito|attività)\s+(?!con\s))?(?:(?:in|nel|nella|sul|sulla)\s+(?:calendario|agenda)\s+)?(?:(?:per|di|che|:)\s+)?/i);
+    if (cv && cv[0].trim() && t.length > cv[0].length + 1) {
+      const rest = t.slice(cv[0].length).trim();
+      const force = /calendario|agenda|evento|appuntamento|impegno/i.test(cv[0]) ? "event" : /promemoria|task|cosa\s+da\s+fare|compito/i.test(cv[0]) ? "task" : null;
+      const it = detectIntent(rest);
+      if (force === "event" && it.kind === "task" && it.reminderAt) return { kind: "event", title: cleanEventTitle(it.text) || it.text, timestamp: it.reminderAt };
+      if (force === "task" && it.kind === "event") return { kind: "task", text: it.title, reminderAt: it.timestamp || null, category: null };
+      return it;
+    }
+  }
+
   // ─── EVENT vs TASK heuristic ─────────────────────────────
   // Events: anything with a specific date+time AND NOT a clear task verb
   // Tasks: action verbs ("comprare", "chiamare", etc.) OR just "ricordami di X"
@@ -5584,7 +5636,7 @@ function detectIntent(rawText) {
   }
 
   // "aggiungi comprare il detersivo" / "metti un promemoria per X" (nessuna lista coinvolta)
-  if ((m = t.match(/^(?:aggiungi|aggiungimi|metti(?:mi)?|segna|inserisci|crea|nuovo)\s+(?:un\s+|una\s+)?(?:(?:task|promemoria|cosa\s+da\s+fare|compito|attività)\s+)?(?:per\s+|di\s+)?(.+)$/i))) {
+  if ((m = t.match(/^(?:aggiungi|aggiungimi|metti(?:mi)?(?!\s+(?:a\s+posto|apposto|in\s+ordine|via|da\s+parte|in\s+carica|in\s+frigo|su\b|giù|a\s+\S+re\b|in\s+lavatrice|a\s+lavare|in\s+forno))|segna|inserisci|crea|nuovo)\s+(?:un\s+|una\s+)?(?:(?:task|promemoria|cosa\s+da\s+fare|compito|attività)\s+)?(?:per\s+|di\s+)?(.+)$/i))) {
     return taskFromText(m[1], t);
   }
 
@@ -5626,6 +5678,9 @@ function taskFromText(rest, original) {
   const dt = parseDateTime(r);
   let text = (dt ? dt.cleaned : r).trim();
   for (let i = 0; i < 2; i++) text = text.replace(/^(?:di|che\s+devo|che\s+dovrei|che|a|ad|devo|dovrei|mi\s+tocca)\s+/i, "").trim();
+  if (dt && dt.hasTime && /^(?:ho|abbiamo|c'?\s*è)\s+(?:il|la|lo|l'|un|una|uno)\s*\S/i.test(text)) {
+    return { kind: "event", title: cleanEventTitle(text) || text, timestamp: dt.timestamp };
+  }
   const cat = inferCategory(text);
   text = cat.text;
   if (!text || /^(?:oggi|domani|dopodomani|stasera|stamattina|stanotte|subito|poi|dopo|lo|la|questo|questa|quello)$/i.test(text)) {
@@ -5695,6 +5750,295 @@ function findListItemFuzzy(query, { onlyOpen = true, listId = null } = {}) {
     }
   }
   return bestScore >= 0.6 ? best : null;
+}
+/* ─── Agenda: capire di QUALE impegno parli ("l'impegno di sabato", "quello delle 15", "dnd") ───
+   Unisce eventi del calendario e task con promemoria, così "sposta/cancella/quando ho" funzionano su entrambi. */
+const AGENDA_GENERIC_RX = /^(?:(?:il|lo|la|l'|un|una|mio|mia|quel|quell'|quello|quella|questo|questa|tutto|tutti|gli|le|i)\s*)*(?:ciò|impegn[oi]|appuntament[oi]|event[oi]|cosa|cose|roba|task|promemoria|attivit[aà]|quello|quella|questo|questa|coso|programm[ai]|piano|reminder|che\s+ho|che\s+c'è)?$/i;
+function _hm(ts) { const d = new Date(ts); return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; }
+function _dk(ts) { const d = new Date(ts); return dateKey(d.getFullYear(), d.getMonth(), d.getDate()); }
+// Espressione di data/ora "pulita" (tutta la frase è una data) → { dayKey, time } oppure null
+function parseWhenOnly(str) {
+  let x = String(str || "").toLowerCase().replace(/[’]/g, "'").trim().replace(/[?!.,]+$/, "");
+  x = x.replace(/^(?:delle|dalle|verso\s+le)\s+(?=\d|mezz|una\b)/, "alle ").replace(/^dell'(?=una\b)/, "all'").replace(/^(?:ore)\s+(?=\d)/, "alle ");
+  if (/^(?:di|del|della|dello|dei|degli|delle|dell')(?:\s|$)/.test(x)) return null;   // "di sabato" = quale impegno, non quando
+  x = x.replace(/^(?:a|ad|al|per|il|per\s+il|per\s+la|la|nel|nella)\s+(?!le\b)/, "");
+  x = x.replace(/^alla\s+(?=prossim|fine|settimana)/, "");
+  if (!x) return null;
+  const dt = parseDateTime(x);
+  if (!dt || !dt.timestamp) return null;
+  if ((dt.cleaned || "").replace(/^(?:e|ed|di|del|della|stesso\s+giorno|lo\s+stesso\s+giorno|in\s+poi)$/i, "").trim()) return null;
+  let time = (dt.hasExplicitTime || dt.hasTime) ? _hm(dt.timestamp) : null;
+  if (!dt.hasDate && time) {
+    // Solo l'ora: niente trucchi "alle 10 già passate → 22"; è l'ora del giorno dell'impegno
+    const d2 = parseDateTime("dopodomani " + x);
+    if (d2 && d2.timestamp) time = _hm(d2.timestamp);
+  }
+  return { dayKey: dt.hasDate ? _dk(dt.timestamp) : null, time, ts: dt.timestamp };
+}
+// "impegno di sabato" → { name:null, dayKey, time:null } · "dnd di sabato alle 17" → { name:"dnd", ... }
+function parseAgendaRef(src) {
+  const s = String(src || "").toLowerCase().replace(/[’]/g, "'").trim().replace(/[?!.,]+$/, "");
+  const words = s.split(/\s+/).filter(Boolean);
+  let dayKey = null, time = null, head = s;
+  for (let i = 0; i < words.length; i++) {
+    const w = parseWhenOnly(words.slice(i).join(" "));
+    if (w) { dayKey = w.dayKey; time = w.time; head = words.slice(0, i).join(" "); break; }
+  }
+  head = head.replace(/\s+(?:di|del|della|dello|delle|dell'|dei|per|previst[oa]\s+per|fissat[oa]\s+per|che\s+ho|che\s+c'è|che\s+avevo|in\s+programma)$/i, "").trim();
+  // "l'appuntamento dal dentista" → "dentista", "l'impegno con Marco" → "marco"
+  let name = head.replace(/^(?:(?:il|lo|la|l'|un|una|mio|mia)\s*)?(?:impegn[oi]|appuntament[oi]|event[oi]|task|promemoria)\s+(?:(?:con|dal|dalla|dallo|dai|di|del|della|per|a|al|alla)\s+)?/i, "").trim();
+  if (AGENDA_GENERIC_RX.test(name)) name = null; else name = stripArticles(name) || null;
+  return { name, dayKey, time };
+}
+function agendaItems() {
+  const out = [], now = Date.now(), seen = new Set();
+  try {
+    const t0 = startOfDay(now);
+    for (let i = -1; i < 90; i++) {
+      const d = new Date(t0 + i * 86400000), k = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
+      for (const e of Calendar.eventsOnDay(k)) {
+        if (seen.has(e.id)) continue; seen.add(e.id);              // ricorrenti: solo la prossima volta
+        const [h, mi] = (e.time || "00:00").split(":").map(Number);
+        out.push({ type: "event", id: e.id, title: e.title, dayKey: k, time: e.allDay ? null : (e.time || null), allDay: !!e.allDay || !e.time,
+          at: new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, mi).getTime(), ev: e });
+      }
+    }
+  } catch(e) {}
+  for (const t of state.tasks) {
+    if (t.done || !t.reminderAt || t.reminderAt < now - 7 * 86400000) continue;
+    out.push({ type: "task", id: t.id, title: t.text, dayKey: _dk(t.reminderAt), time: _hm(t.reminderAt), at: t.reminderAt, task: t });
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+function findAgenda(ref) {
+  let items = agendaItems();
+  if (ref.dayKey) items = items.filter(x => x.dayKey === ref.dayKey);
+  if (ref.time) items = items.filter(x => x.time === ref.time);
+  if (ref.name) {
+    const q = ref.name.toLowerCase();
+    const scored = items.map(x => ({ x, sc: x.title.toLowerCase().includes(q) ? 1.01 : fuzzyScore(ref.name, x.title) })).filter(o => o.sc >= 0.6);
+    if (!scored.length) return [];
+    const best = Math.max(...scored.map(o => o.sc));
+    const top = scored.filter(o => o.sc === best).map(o => o.x);
+    const now = Date.now() - 3600000;
+    return [top.find(x => x.at >= now) || top[top.length - 1]];     // il prossimo con quel nome
+  }
+  if (!ref.dayKey && !ref.time) {
+    // "sposta l'impegno" senza altro: quello di cui si parlava
+    const last = state.lastAgendaRef && items.find(x => x.id === state.lastAgendaRef);
+    if (last) return [last];
+    const tk = resolveTaskRef();
+    if (tk && !tk.done) return [{ type: "task", id: tk.id, title: tk.text, at: tk.reminderAt || null, dayKey: tk.reminderAt ? _dk(tk.reminderAt) : null, time: tk.reminderAt ? _hm(tk.reminderAt) : null, task: tk }];
+    return [];
+  }
+  return items;
+}
+function describeRef(ref) {
+  const parts = [];
+  if (ref.dayKey) {
+    const [y, mo, d] = ref.dayKey.split("-").map(Number);
+    const diff = Math.round((new Date(y, mo - 1, d) - startOfDay(Date.now())) / 86400000);
+    parts.push(diff === 0 ? "oggi" : diff === 1 ? "domani" : new Date(y, mo - 1, d).toLocaleDateString("it-IT", { weekday: "long", day: "numeric" }));
+  }
+  if (ref.time) parts.push("alle " + ref.time);
+  return parts.join(" ");
+}
+function agendaLabel(x) { return `${x.type === "event" ? "📅" : "⏰"} ${x.title}${x.time ? " (" + x.time + ")" : ""}`; }
+function agendaWhen(x) {
+  if (x.type === "task" || !x.allDay) return friendlyWhen(x.at);
+  const d = new Date(x.at); return d.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+}
+// "di un'ora", "di 30 minuti", "di 2 giorni", "di una settimana" → ms
+function parseShift(str) {
+  const s = String(str || "").toLowerCase().replace(/[’]/g, "'").trim();
+  if (/^(?:una\s+)?mezz'?\s*ora$/.test(s)) return 30 * 60000;
+  if (/^un\s+quarto\s+d'?\s*ora$/.test(s)) return 15 * 60000;
+  if (/^un'?\s*or(?:a|etta)$/.test(s)) return 3600000;
+  if (/^(?:un|1)\s+giorno$/.test(s)) return 86400000;
+  if (/^(?:una|1)\s+settimana$/.test(s)) return 7 * 86400000;
+  const m = s.match(/^(\d+|[a-zàèéìòù]+)\s+(minut[oi]|or[ae]|giorn[oi]|settiman[ae])(?:\s+e\s+mezz[oa])?$/);
+  if (!m) return null;
+  const n = /^\d+$/.test(m[1]) ? +m[1] : (typeof NUMS_IT !== "undefined" ? NUMS_IT[m[1]] : null);
+  if (!n) return null;
+  const unit = /^min/.test(m[2]) ? 60000 : /^or/.test(m[2]) ? 3600000 : /^giorn/.test(m[2]) ? 86400000 : 7 * 86400000;
+  return n * unit + (/e\s+mezz/.test(s) ? unit / 2 : 0);
+}
+// "sposta l'impegno di sabato alle 16", "rimanda dnd a domenica", "posticipa la cena di un'ora", "il dentista spostalo alle 16"
+function parseMoveCommand(lower) {
+  let s = String(lower || "").replace(/[’]/g, "'").replace(/[?!.]+$/, "").trim();
+  // "puoi spostare…", "mi sposti…", "me lo rimandi…" → forma base
+  s = s.replace(/^(?:per\s+favore\s+|ti\s+prego\s+)?(?:(?:mi\s+|me\s+l[oa]\s+)?(?:puoi|potresti|riesci\s+a|vorrei)\s+)?(?:mi\s+|me\s+l[oa]\s+)?/, "")
+       .replace(/^(spost|rimand|anticip|posticip|rinvi)(?:i|are)\b/, "$1a");
+  let m = s.match(/^(.+?)\s+(spost|rimand|anticip|posticip|rinvi)a(?:l[oaie]|mel[oaie])\s+(.+)$/);
+  if (m) s = m[2] + "a " + m[1] + " " + m[3];
+  m = s.match(/^((?:spost|rimand|anticip|posticip|rinvi)al[oaie]|sposta(?:re|mi|melo|mela)?|posticipa(?:re|mi)?|rinvia(?:re|mi)?|rimanda(?:re|mi)?|anticipa(?:re|mi)?|ritarda(?:re)?|cambia(?:re|mi)?\s+(?:la\s+|l'|il\s+)?(?:data|orario|ora|giorno)\s*(?:a|al|allo|alla|all'|ai|del|della|dello|dell'|di|per)?)(?:\s+|$)(.*)$/);
+  if (!m) return null;
+  const verb = m[1];
+  let rest = m[2].trim();
+  let dir = /^anticip/.test(verb) ? -1 : 1;
+  // Spostamento relativo: "di un'ora", "avanti di 2 giorni", "di 30 minuti prima"
+  const rel = rest.match(/^(.*?)\s*(?:(avanti|indietro|più\s+tardi|prima|dopo)\s+)?di\s+(.+?)(?:\s+(prima|dopo|più\s+tardi|in\s+avanti|indietro|avanti))?$/);
+  if (rel) {
+    const sh = parseShift(rel[3]);
+    if (sh) {
+      const w = rel[2] || rel[4] || "";
+      if (/indietro|prima/.test(w)) dir = -1; else if (/avanti|tardi|dopo/.test(w)) dir = 1;
+      const ref = parseAgendaRef(rel[1]);
+      return { kind: "event_move", query: ref.name || rel[1], ref, dateKey: null, time: null, shiftMs: dir * sh };
+    }
+  }
+  let words = rest.split(/\s+/).filter(Boolean);
+  // "posticipa di mezz'ora la cena", "sposta di un giorno il dentista"
+  if (words[0] === "di") {
+    for (let j = words.length - 1; j >= 2; j--) {
+      const sh = parseShift(words.slice(1, j).join(" "));
+      if (sh) {
+        let k = j; let d2 = dir;
+        if (/^(?:avanti|indietro|prima|dopo)$/.test(words[k] || "")) { if (/indietro|prima/.test(words[k])) d2 = -1; else d2 = 1; k++; }
+        const ref = parseAgendaRef(words.slice(k).join(" "));
+        return { kind: "event_move", query: ref.name || words.slice(k).join(" "), ref, dateKey: null, time: null, shiftMs: d2 * sh };
+      }
+    }
+  }
+  // "sposta a domenica la sessione di dnd", "sposta alle 18 la cena"
+  if (/^(?:a|ad|al|allo|alla|alle|all'.*|per)$/.test(words[0] || "") && words.length > 2) {
+    for (let j = words.length - 1; j >= 2; j--) {
+      const w = parseWhenOnly(words.slice(0, j).join(" "));
+      if (w) {
+        const src0 = words.slice(j).join(" ");
+        const ref = parseAgendaRef(src0);
+        return { kind: "event_move", query: ref.name || src0, ref, dateKey: w.dayKey, time: w.time, shiftMs: null };
+      }
+    }
+  }
+  let target = null, cut = words.length;
+  // 1) destinazione introdotta da a/al/alle/per… ("a domenica", "alle 16", "per lunedì")
+  for (let i = 0; i < words.length && !target; i++) {
+    if (!/^(?:a|ad|al|allo|alla|alle|all'.*|ai|per|verso|entro|fino)$/.test(words[i])) continue;
+    const w = parseWhenOnly(words.slice(i).join(" "));
+    if (w) { target = w; cut = i; }
+  }
+  // 2) senza preposizione: "sposta la riunione domani alle 10" (ma "di sabato" resta parte dell'impegno)
+  if (!target) {
+    for (let i = 1; i < words.length && !target; i++) {
+      if (/^(?:di|del|della|dello|delle|dell'.*|dei|per|che|ho)$/.test(words[i - 1])) continue;
+      const w = parseWhenOnly(words.slice(i).join(" "));
+      if (w) { target = w; cut = i; }
+    }
+  }
+  const src = words.slice(0, cut).join(" ");
+  const ref = parseAgendaRef(src);
+  // "sposta il divano" (senza quando, e non è un impegno) → è una cosa da fare, non uno spostamento
+  if (!target && ref.name && !findAgenda(ref).length && !findTaskFuzzy(ref.name)) return null;
+  return { kind: "event_move", query: ref.name || src, ref, dateKey: target ? target.dayKey : null, time: target ? target.time : null, shiftMs: null };
+}
+async function agendaApplyMove(it, tg) {
+  let at;
+  if (tg.shiftMs) at = (it.at || Date.now()) + tg.shiftMs;
+  else {
+    const dk = tg.dateKey || it.dayKey || localDayKey();
+    const tm = tg.time || it.time || (it.type === "task" ? "09:00" : null);
+    const [y, mo, d] = dk.split("-").map(Number); const [hh, mm] = (tm || "00:00").split(":").map(Number);
+    at = new Date(y, mo - 1, d, hh, mm, 0, 0).getTime();
+    if (!tg.dateKey && it.type === "task" && !it.at && at <= Date.now()) at += 86400000;
+  }
+  if (it.type === "task") {
+    await updateTaskInDb(it.id, { reminderAt: at });
+    state.lastTaskRef = it.id;
+  } else {
+    const upd = { date: _dk(at) };
+    if (tg.time || (tg.shiftMs && !it.allDay && tg.shiftMs % 86400000)) { upd.time = _hm(at); upd.allDay = false; }
+    await db.collection("users").doc(state.uid).collection("events").doc(it.id).update(upd);
+  }
+  state.lastAgendaRef = it.id;
+  const moved = { ...it, at, allDay: it.type === "event" && it.allDay && !(tg.time) };
+  return `Ok, "${it.title}" spostato a ${agendaWhen(moved)} ♪`;
+}
+async function agendaMove(intent) {
+  const ref = intent.ref || parseAgendaRef(intent.query);
+  let items = findAgenda(ref);
+  if (!items.length && ref.name && !ref.dayKey && !ref.time) {
+    const tk = findTaskFuzzy(ref.name);                                // task senza orario: gli do un orario
+    if (tk) items = [{ type: "task", id: tk.id, title: tk.text, at: tk.reminderAt || null, dayKey: tk.reminderAt ? _dk(tk.reminderAt) : null, time: tk.reminderAt ? _hm(tk.reminderAt) : null, task: tk }];
+  }
+  if (!items.length) {
+    if (ref.name) return `Non trovo nessun impegno o task con "${ref.name}"${describeRef(ref) ? " " + describeRef(ref) : ""} 🤔`;
+    if (ref.dayKey || ref.time) return `${capFirst(describeRef(ref))} non hai niente in programma 🤔`;
+    return `Quale impegno sposto? Dimmi per esempio "sposta la cena a domani" o "sposta l'impegno di sabato alle 16"`;
+  }
+  const hasTarget = intent.dateKey || intent.time || intent.shiftMs;
+  if (items.length > 1) {
+    state.pendingChoice = { op: "move", intent, items: items.slice(0, 6), at: Date.now() };
+    return `${capFirst(describeRef(ref))} hai ${items.length} impegni: ${items.slice(0, 6).map((x, i) => `${i + 1}) ${agendaLabel(x)}`).join(", ")}. Quale sposto?`;
+  }
+  if (!hasTarget) {
+    state.pendingChoice = { op: "move_when", items, at: Date.now() };
+    state.lastAgendaRef = items[0].id;
+    return `A quando sposto "${items[0].title}"? (es. "sabato alle 16" o "di un'ora")`;
+  }
+  return agendaApplyMove(items[0], intent);
+}
+async function agendaDelete(query, confirmed) {
+  const ref = parseAgendaRef(query);
+  const items = findAgenda(ref);
+  if (!items.length) return null;
+  if (items.length > 1 && !ref.name) {
+    state.pendingChoice = { op: "delete", items: items.slice(0, 6), at: Date.now() };
+    return `${capFirst(describeRef(ref))} hai ${items.length} impegni: ${items.slice(0, 6).map((x, i) => `${i + 1}) ${agendaLabel(x)}`).join(", ")}. Quale cancello?`;
+  }
+  return agendaAskDelete(items[0], confirmed || !!ref.name);
+}
+async function agendaAskDelete(it, direct) {
+  if (!direct) {
+    state.pendingDangerAction = it.type === "event"
+      ? { kind: "event_delete", payload: { eventId: it.id, query: it.title } }
+      : { kind: "delete_task", payload: { query: it.title, taskId: it.id, confirmed: true } };
+    return `Cancello "${it.title}" (${agendaWhen(it)})? Di' "sì" per confermare.`;
+  }
+  if (it.type === "task") return executeIntent({ kind: "delete_task", query: it.title, taskId: it.id, confirmed: true });
+  await db.collection("users").doc(state.uid).collection("events").doc(it.id).delete();
+  return `Eliminato: ${it.title}`;
+}
+// Risposta a "Quale sposto?" / "A quando?" — "il primo", "quello delle 17", "dnd", "alle 16"
+async function resolvePendingChoice(pc, text) {
+  if (!pc || Date.now() - pc.at > 5 * 60000) return null;
+  const low = String(text || "").toLowerCase().replace(/[’]/g, "'").trim().replace(/[?!.]+$/, "");
+  if (isNegative(low) || /^(?:lascia\s+(?:stare|perdere)|niente|nessuno|annulla)$/.test(low)) return "Ok, lascio tutto com'è~";
+  if (pc.op === "move_when") {
+    const it = pc.items[0];
+    const sh = low.match(/^(?:(avanti|indietro|più\s+tardi|prima|dopo)\s+)?di\s+(.+?)(?:\s+(prima|dopo|più\s+tardi|avanti|indietro))?$/);
+    if (sh && parseShift(sh[2])) { const w = sh[1] || sh[3] || ""; return agendaApplyMove(it, { shiftMs: (/indietro|prima/.test(w) ? -1 : 1) * parseShift(sh[2]) }); }
+    const w = parseWhenOnly(low.replace(/^(?:spostal[oa]\s+|mettil[oa]\s+|facciamo\s+)/, ""));
+    return w ? agendaApplyMove(it, { dateKey: w.dayKey, time: w.time }) : null;
+  }
+  const ORD = { "prim": 0, "1": 0, "uno": 0, "second": 1, "2": 1, "due": 1, "terz": 2, "3": 2, "tre": 2, "quart": 3, "4": 3, "quattro": 3, "quint": 4, "5": 4, "cinque": 4 };
+  let pick = null;
+  const om = low.match(/^(?:(?:il|la|lo|l'|quello|quella)\s*)?(prim|second|terz|quart|quint|ultim|[1-6]|uno|due|tre|quattro|cinque)[oa]?$/);
+  if (om) pick = om[1] === "ultim" ? pc.items[pc.items.length - 1] : pc.items[ORD[om[1]]];
+  if (!pick) { const w = parseWhenOnly(low.replace(/^(?:quell[oa]\s+)/, "")); if (w && w.time) pick = pc.items.find(x => x.time === w.time); }
+  if (!pick) {
+    const nm = low.replace(/^(?:quell[oa]\s+(?:di|del|della|dell'|con)\s+|(?:il|la|lo|l')\s*)/, "");
+    let best = null, bs = 0;
+    for (const x of pc.items) { const sc = x.title.toLowerCase().includes(nm) ? 1.01 : fuzzyScore(nm, x.title); if (sc > bs) { bs = sc; best = x; } }
+    if (bs >= 0.6) pick = best;
+  }
+  if (!pick && pc.op === "move") {
+    // Ha detto QUANDO ma non QUALE: me lo segno e richiedo solo quale
+    const w = parseWhenOnly(low);
+    if (w) {
+      state.pendingChoice = { ...pc, intent: { ...(pc.intent || {}), dateKey: w.dayKey, time: w.time, shiftMs: null }, at: Date.now() };
+      return `Ok, ${describeRef({ dayKey: w.dayKey, time: w.time })}. Ma quale sposto? ${pc.items.map((x, i) => `${i + 1}) ${agendaLabel(x)}`).join(", ")}`;
+    }
+  }
+  if (!pick) return null;
+  state.lastAgendaRef = pick.id;
+  if (pc.op === "delete") return agendaAskDelete(pick, false);
+  const tg = pc.intent || {};
+  if (!(tg.dateKey || tg.time || tg.shiftMs)) {
+    state.pendingChoice = { op: "move_when", items: [pick], at: Date.now() };
+    return `A quando sposto "${pick.title}"?`;
+  }
+  return agendaApplyMove(pick, tg);
 }
 function shoppingList() {
   return Lists.lists.find(l => /spesa|supermercato|da\s+comprare|market/i.test(l.name)) || null;
@@ -5788,6 +6132,13 @@ async function processUserCommand(rawText, source = "text") {
     // e processo normalmente il nuovo comando (prima restava bloccato per sempre).
     state.pendingDangerAction = null;
   }
+  // 1b) Risposta a "Quale sposto?" / "A quando lo sposto?"
+  if (state.pendingChoice) {
+    const pc = state.pendingChoice;
+    state.pendingChoice = null;
+    const r = await resolvePendingChoice(pc, original);
+    if (r) { showBubble(formatAssistantReply(r)); return { ok: true, fromChoice: true, reply: r }; }
+  }
 
   // Route through Gemini if enabled (dopo la gestione delle conferme sì/no).
   // Comandi chiari e strutturati li esegue subito il parser locale: più veloce,
@@ -5799,7 +6150,7 @@ async function processUserCommand(rawText, source = "text") {
       "task_followup","timer_cancel","timer_status","overdue_list","bulk_reschedule","next_up","place_set","place_get","task_note","task_rename","task_category",
       "delete_done","complete_all","tts_set","theme_set","filter_set","repeat_last","delete_task","list_delete",
       "timer","math","convert","time_info","date_info","open","close","undo","help","event","event_move",
-      "event_delete","event_query","complete_task","summary","weather","coin","dice","random","countdown","focus_enter","focus_exit"]);
+      "event_delete","event_query","agenda_clear_day","complete_task","summary","weather","coin","dice","random","countdown","focus_enter","focus_exit"]);
     const shortTask = local && local.kind === "task" && String(local.text || "").split(/\s+/).length <= 8;
     const fast = local && (FAST.has(local.kind) || shortTask) && !(local.kind === "event" && !local.timestamp);
     if (!fast) {
@@ -5939,6 +6290,7 @@ async function executeIntent(intent) {
       await addTaskToDb(task);
       state.lastAction = { kind: "task_create", id: task.id, text: task.text };
       state.lastTaskRef = task.id;
+      if (task.reminderAt) state.lastAgendaRef = task.id;
       if (task.repeat) {
         requestNotifPermission();
         return `Ok! "${task.text}" 🔁 ${REPEAT_LABEL[task.repeat]} — la prima volta ${friendlyWhen(task.reminderAt)}`;
@@ -5957,7 +6309,7 @@ async function executeIntent(intent) {
       const dateStr = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
       const timeStr = `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
       intent.title = capFirst(intent.title);
-      await db.collection("users").doc(state.uid).collection("events").add({
+      const evRef = await db.collection("users").doc(state.uid).collection("events").add({
         title: intent.title,
         date: dateStr,
         time: timeStr,
@@ -5969,36 +6321,44 @@ async function executeIntent(intent) {
         ts: Date.now(),
       });
       state.lastAction = { kind: "event_create", title: intent.title, timestamp: intent.timestamp };
+      if (evRef && evRef.id) state.lastAgendaRef = evRef.id;
       requestNotifPermission();
       return `Evento salvato! ${intent.title} — ${friendlyWhen(intent.timestamp)} 📅`;
     }
     case "event_delete": {
+      if (intent.eventId) {
+        await db.collection("users").doc(state.uid).collection("events").doc(intent.eventId).delete();
+        return `Eliminato: ${intent.query}`;
+      }
+      const ag = await agendaDelete(intent.query, false);
+      if (ag) return ag;
       const found = await Calendar.deleteByTitle(intent.query);
       if (!found) return `Non trovo nessun evento con "${intent.query}"`;
       return `Eliminato: ${found.event.title}`;
     }
-    case "event_move": {
-      // Prima cerca un TASK con quel nome (es. "sposta la lavatrice a domani"), poi un evento
-      const tk = findTaskFuzzy(intent.query);
-      if (tk && !Calendar.findByTitle(String(intent.query).toLowerCase())) {
-        const [y, mo, d] = intent.dateKey.split("-").map(Number);
-        const [hh, mm] = (intent.time || (tk.reminderAt ? `${new Date(tk.reminderAt).getHours()}:${new Date(tk.reminderAt).getMinutes()}` : "9:00")).split(":").map(Number);
-        const at = new Date(y, mo - 1, d, hh, mm, 0, 0).getTime();
-        await updateTaskInDb(tk.id, { reminderAt: at });
-        state.lastTaskRef = tk.id;
-        return `Ok, "${tk.text}" spostato a ${friendlyWhen(at)} ⏰`;
+    case "event_move": return agendaMove(intent);
+    case "agenda_clear_day": {
+      const items = findAgenda({ name: null, dayKey: intent.dayKey, time: null });
+      const lbl = describeRef({ dayKey: intent.dayKey });
+      if (!items.length) return `${capFirst(lbl)} non hai niente in programma 🍞`;
+      if (!intent.confirmed) {
+        state.pendingDangerAction = { kind: "agenda_clear_day", payload: { dayKey: intent.dayKey, confirmed: true } };
+        return `Cancello ${items.length === 1 ? "l'impegno" : "i " + items.length + " impegni"} di ${lbl}: ${items.map(agendaLabel).join(", ")}? Di' "sì" per confermare.`;
       }
-      const found = await Calendar.moveByTitle(intent.query, intent.dateKey, intent.time);
-      if (!found) return `Non trovo nessun evento o task con "${intent.query}"`;
-      const [yy, mm, dd] = intent.dateKey.split("-").map(Number);
-      const newDate = new Date(yy, mm-1, dd);
-      const dayLabel = newDate.toLocaleDateString("it-IT", { weekday:"long", day:"numeric", month:"long" });
-      const timePart = intent.time ? ` alle ${intent.time}` : "";
-      return `Spostato "${found.event.title}" a ${dayLabel}${timePart} ♪`;
+      for (const it of items) {
+        if (it.type === "task") await deleteTaskFromDb(it.id);
+        else await db.collection("users").doc(state.uid).collection("events").doc(it.id).delete();
+      }
+      return `Fatto, ${lbl} ora è libero~ (${items.length} ${items.length === 1 ? "impegno cancellato" : "impegni cancellati"})`;
     }
     case "event_query": {
       const found = Calendar.findByTitle(intent.query);
-      if (!found) return `Non trovo nessun evento con "${intent.query}" nei prossimi 60 giorni`;
+      if (!found) {
+        const ag = findAgenda({ name: intent.query, dayKey: null, time: null });
+        if (ag.length) { state.lastAgendaRef = ag[0].id; return `${ag[0].title}: ${agendaWhen(ag[0])}`; }
+        return `Non trovo nessun evento o promemoria con "${intent.query}" nei prossimi 60 giorni`;
+      }
+      state.lastAgendaRef = found.event.id;
       const dayLabel = found.date.toLocaleDateString("it-IT", { weekday:"long", day:"numeric", month:"long" });
       const timePart = found.event.allDay ? "tutto il giorno" : (found.event.time ? `alle ${found.event.time}` : "");
       return `${found.event.title}: ${dayLabel} ${timePart}`.trim();
@@ -6232,7 +6592,16 @@ async function executeIntent(intent) {
       const tomorrow0 = new Date(today0); tomorrow0.setDate(tomorrow0.getDate()+1);
       const weekEnd = new Date(today0); weekEnd.setDate(weekEnd.getDate()+7);
       let start, end, label;
-      if (intent.when === "domani") {
+      if (intent.dayKey) {
+        const [yy, mo, dd] = intent.dayKey.split("-").map(Number);
+        start = new Date(yy, mo - 1, dd).getTime(); end = start + 86400000;
+        label = capFirst(new Date(start).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" }));
+      } else if (intent.when === "weekend") {
+        const sat = new Date(today0); sat.setDate(sat.getDate() + ((6 - sat.getDay() + 7) % 7 || (today0.getDay() === 6 ? 0 : 7)));
+        if (today0.getDay() === 0) sat.setDate(today0.getDate() - 1);
+        start = Math.max(sat.getTime(), today0.getTime()); end = sat.getTime() + 2 * 86400000;
+        label = "Nel weekend";
+      } else if (intent.when === "domani") {
         start = tomorrow0.getTime();
         end = start + 86400000;
         label = "Domani";
@@ -6430,6 +6799,9 @@ async function executeIntent(intent) {
       if (!intent.confirmed) {
         const target = findTaskFuzzy(intent.query, { includeDone: true });
         if (!target) {
+          // "elimina la visita di giovedì": nome + giorno → cerco tra eventi e promemoria
+          const ag = await agendaDelete(intent.query, false);
+          if (ag) return ag;
           // Non è un task: forse è un evento del calendario ("cancella dentista")
           const ev = Calendar.findByTitle(String(intent.query).toLowerCase());
           if (ev) {
