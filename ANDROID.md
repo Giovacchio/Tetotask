@@ -6,7 +6,8 @@ non serve installare Node o lanciare comandi.
 ## Primo avvio
 1. **Android Studio → Open →** scegli la cartella `Tetotask/android`.
 2. Aspetta la sincronizzazione di Gradle: la prima volta scarica i componenti Android (qualche minuto).
-   Se Android Studio propone di aggiornare qualcosa, accetta. Serve una versione recente (2025 o successiva).
+   ⚠️ Se compare l'**Upgrade Assistant** ("Upgrade Android Gradle Plugin…"), **non aggiornare**: chiudilo.
+   Il progetto usa apposta la versione 8.13 (quella supportata da Capacitor). Serve Android Studio 2025 o successivo.
 3. Collega il telefono con il debug USB attivo (oppure usa il Wi-Fi debugging) e premi **Run ▶**.
 
 ## Al primo uso sul telefono
