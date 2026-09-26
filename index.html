@@ -1320,6 +1320,11 @@ textarea.cal-form-input { resize: vertical; min-height: 60px; }
 }
 .smart-hint strong { color:var(--red); }
 #smartHint:empty { display:none; }
+.timer-bar { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 2px; }
+.timer-chip { display:inline-flex; align-items:center; gap:6px; padding:6px 6px 6px 12px; border-radius:999px;
+  background:rgba(255,47,94,.1); color:var(--deep); font-weight:700; font-size:.82rem; }
+.timer-chip b { font-variant-numeric:tabular-nums; color:var(--red); }
+.timer-chip button { border:0; background:rgba(255,47,94,.15); color:var(--deep); border-radius:50%; width:26px; height:26px; font-weight:800; }
 
 /* ─── Rimanda promemoria (task espanso) ─── */
 .snooze-row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:2px 0 10px; }
@@ -2445,25 +2450,25 @@ const Briefing = {
     const overdue   = state.tasks.filter(t => !t.done && t.reminderAt && t.reminderAt < sod);
     const inboxNum  = state.tasks.filter(t => !t.done && !t.reminderAt).length;
 
-    if (overdue.length > 0) {
-      lines.push(`⚠️ ${overdue.length} ${overdue.length===1?"task in ritardo":"task in ritardo"}.`);
+    const names = arr => arr.slice(0, 3).map(t => t.text).join(", ") + (arr.length > 3 ? ` e altri ${arr.length - 3}` : "");
+    todayTasks.sort((a, b) => a.reminderAt - b.reminderAt);
+    // Eventi di oggi ancora da venire
+    const todayKey = localDayKey();
+    const nowHM = new Date().toTimeString().slice(0, 5);
+    const todayEvts = (typeof Calendar !== "undefined" ? Calendar.eventsOnDay(todayKey) : [])
+      .filter(e => e.allDay || !e.time || e.time >= nowHM);
+    if (todayEvts.length) {
+      lines.push(`📅 ${todayEvts.slice(0, 3).map(e => (e.allDay || !e.time ? "" : e.time + " ") + e.title).join(", ")}${todayEvts.length > 3 ? ` e altri ${todayEvts.length - 3}` : ""}.`);
     }
     if (todayTasks.length > 0) {
-      lines.push(`Oggi hai ${todayTasks.length} ${todayTasks.length===1?"impegno":"impegni"} programmat${todayTasks.length===1?"o":"i"}.`);
-    } else if (inboxNum > 0) {
+      lines.push(`⏰ Oggi: ${names(todayTasks)}.`);
+    } else if (!todayEvts.length && inboxNum > 0) {
       lines.push(`Niente in agenda — ${inboxNum} task in attesa quando vuoi.`);
-    } else {
+    } else if (!todayEvts.length) {
       lines.push("Niente all'orizzonte. Goditi la giornata~ ♪");
     }
-
-    // Next event from calendar
-    if (typeof Calendar !== "undefined" && Calendar.events) {
-      const todayKey = dateKey(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
-      const todayEvts = Calendar.eventsOnDay(todayKey);
-      if (todayEvts.length > 0) {
-        const next = todayEvts[0];
-        lines.push(`Prossimo evento: ${next.title} alle ${next.time || "?"}.`);
-      }
+    if (overdue.length > 0) {
+      lines.push(`⚠️ Rimasti indietro: ${names(overdue)}. Se vuoi dimmi "rimanda tutto a domani".`);
     }
 
     return lines.join("\n");
@@ -2483,20 +2488,19 @@ const Briefing = {
     });
   },
   shouldShowToday() {
-    const today = new Date().toISOString().slice(0,10);
+    const today = localDayKey();
     const last = localStorage.getItem("teto_last_briefing");
     return last !== today && new Date().getHours() >= 5 && new Date().getHours() < 12;
   },
   markShown() {
-    const today = new Date().toISOString().slice(0,10);
+    const today = localDayKey();
     try { localStorage.setItem("teto_last_briefing", today); } catch(e) {}
     state.briefingShownToday = today;
   },
   async show(force = false) {
     if (!force && !this.shouldShowToday()) return;
     const text = await this.build();
-    showBubble(text);
-    if (TTS.enabled) TTS.speak(text);
+    showBubble(text);            // showBubble legge già ad alta voce se la voce è attiva
     this.markShown();
   },
 };
@@ -2520,8 +2524,12 @@ const Planner = {
 
     // Tasks to plan: today's reminders + active inbox (limit inbox to top 5)
     const todayTasks = state.tasks.filter(t => !t.done && t.reminderAt && t.reminderAt >= sod && t.reminderAt < eod);
-    const inbox = state.tasks.filter(t => !t.done && !t.reminderAt).slice(0, 5);
+    const prio = t => (t.category === "urgente" ? 0 : t.category === "lavoro" ? 1 : 2);
+    const inbox = state.tasks.filter(t => !t.done && !t.reminderAt)
+      .sort((a, b) => prio(a) - prio(b) || (a.ts || 0) - (b.ts || 0))      // urgenti, poi i più vecchi
+      .slice(0, 6);
     const all = [...todayTasks, ...inbox];
+    const keptHours = new Set(todayTasks.map(t => new Date(t.reminderAt).getHours()));
 
     // Calendar events as occupied blocks
     const todayKey = dateKey(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
@@ -2537,7 +2545,7 @@ const Planner = {
     const slots = [];
     for (const win of this.defaultSlots()) {
       for (let h = Math.max(win.start, nowH+1); h < win.end; h++) {
-        const busy = events.some(ev => ev.hour === h);
+        const busy = events.some(ev => ev.hour === h) || keptHours.has(h);
         if (!busy) slots.push({ hour: h, label: `${h}:00`, period: win.label });
       }
     }
@@ -2546,16 +2554,17 @@ const Planner = {
     const plan = [];
     let i = 0;
     for (const task of all) {
-      if (i >= slots.length) break;
       // If task already has a reminder time, keep it
       if (task.reminderAt) {
         const d = new Date(task.reminderAt);
         plan.push({ task, hour: d.getHours(), min: d.getMinutes(), kept: true });
       } else {
+        if (i >= slots.length) continue;
         const slot = slots[i++];
         plan.push({ task, hour: slot.hour, min: 0, kept: false });
       }
     }
+    plan.sort((a, b) => (a.hour * 60 + a.min) - (b.hour * 60 + b.min));
 
     return { plan, events, hasItems: plan.length > 0, totalActive: all.length };
   },
@@ -3018,12 +3027,25 @@ function formatDuration(ms) {
 /* ─── Timer manager ──────────────────────────────────────────── */
 const Timers = {
   active: [],
+  KEY: "teto-timers",
+  _save() { try { localStorage.setItem(this.KEY, JSON.stringify(this.active.map(({ id, label, endAt, ms }) => ({ id, label, endAt, ms })))); } catch(e) {} },
+  restore() {                         // dopo un ricaricamento i timer continuano (o suonano se scaduti)
+    let arr = [];
+    try { arr = JSON.parse(localStorage.getItem(this.KEY) || "[]"); } catch(e) {}
+    for (const t of arr) {
+      const left = t.endAt - Date.now();
+      t.handle = setTimeout(() => this.fire(t.id), Math.max(0, left));
+      this.active.push(t);
+    }
+    this._tick();
+  },
   start(ms, label) {
     const id = "t" + Date.now() + Math.random().toString(36).slice(2,6);
     const endAt = Date.now() + ms;
     const handle = setTimeout(() => this.fire(id), ms);
-    const t = { id, label: label || "timer", endAt, handle };
+    const t = { id, label: label || "timer", endAt, ms, handle };
     this.active.push(t);
+    this._save(); this._tick(); requestRender();
     return t;
   },
   fire(id) {
@@ -3031,16 +3053,45 @@ const Timers = {
     if (i < 0) return;
     const t = this.active[i];
     this.active.splice(i, 1);
+    this._save();
     try { showBubble(`⏰ Timer ${t.label} finito!`); } catch(e){}
-    try { TTS.speak(`Timer ${t.label} finito!`); } catch(e){}
-    try { haptic(300); } catch(e){}
-    try {
-      sysNotify("Teto 🍞", `⏰ Timer ${t.label} finito!`, "timer-" + Date.now());
-    } catch(e){}
+    try { haptic([300, 120, 300]); } catch(e){}
+    try { sysNotify("Teto 🍞", `⏰ Timer ${t.label} finito!`, "timer-" + t.id); } catch(e){}
+    requestRender();
+  },
+  cancel(id) {
+    const i = this.active.findIndex(t => t.id === id);
+    if (i < 0) return null;
+    const [t] = this.active.splice(i, 1);
+    clearTimeout(t.handle); this._save(); requestRender();
+    return t;
   },
   cancelAll() {
     this.active.forEach(t => clearTimeout(t.handle));
-    this.active = [];
+    const n = this.active.length;
+    this.active = []; this._save(); requestRender();
+    return n;
+  },
+  // Controllo al ritorno in primo piano: Android può ritardare i setTimeout in background
+  checkDue() { for (const t of [...this.active]) if (t.endAt <= Date.now()) this.fire(t.id); },
+  left(t) {
+    const s = Math.max(0, Math.round((t.endAt - Date.now()) / 1000));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    return h ? `${h}:${String(m).padStart(2,"0")}:${String(ss).padStart(2,"0")}` : `${m}:${String(ss).padStart(2,"0")}`;
+  },
+  _tick() {                           // aggiorna solo i numeri, senza ridisegnare la pagina
+    if (this._iv || !this.active.length) return;
+    this._iv = setInterval(() => {
+      if (!this.active.length) { clearInterval(this._iv); this._iv = null; return; }
+      document.querySelectorAll("[data-timer-id]").forEach(el => {
+        const t = this.active.find(x => x.id === el.getAttribute("data-timer-id"));
+        if (t) el.textContent = this.left(t);
+      });
+    }, 1000);
+  },
+  html() {
+    if (!this.active.length) return "";
+    return `<div class="timer-bar">${this.active.map(t => `<span class="timer-chip">⏱ <b data-timer-id="${t.id}">${this.left(t)}</b> ${esc(t.label)} <button onclick="Timers.cancel('${t.id}');showBubble('Timer annullato')" title="Annulla">✕</button></span>`).join("")}</div>`;
   },
 };
 const GeminiAgent = {
@@ -4436,6 +4487,9 @@ function detectIntent(rawText) {
   if (/^(?:annulla(?:\s+(?:(?:l'\s*)?ultim[ao](?:\s+(?:cosa|azione|comando))?|quello\s+che\s+ho\s+fatto|tutto))?|ripristina(?:lo|la)?|recupera(?:lo|la)?|rimettilo|rimettila|torna\s+come\s+prima|annulla\s+l'ultima\s+cosa)\s*[?!.]*$/i.test(lower)) {
     return { kind: "undo" };
   }
+  // TIMER (prima di "annulla X" / "cancella X"): ferma / quanto manca
+  if (/^(?:annulla|ferma|stop|cancella|togli|spegni|elimina)\s+(?:il\s+|i\s+|tutti\s+i\s+)?timer$/i.test(lower)) return { kind: "timer_cancel" };
+  if (/^(?:quanto\s+(?:manca|resta)\s+(?:al|del|sul)\s+timer|a\s+che\s+punto\s+è\s+il\s+timer|(?:quanto\s+)?tempo\s+(?:manca|resta)(?:\s+al\s+timer)?)\s*[?!.]*$/i.test(lower)) return { kind: "timer_status" };
   // "annulla la riunione" → cancella l'evento (con conferma); "annulla l'abbonamento" → è un task
   if ((m = t.match(/^annulla(?:re)?\s+(.+)$/i))) {
     const q = stripArticles(m[1].replace(/^(?:l'\s*)?(?:evento|appuntamento|impegno)\s+/i, "").replace(/^(?:dal|dalla|con)\s+/i, ""));
@@ -4443,6 +4497,14 @@ function detectIntent(rawText) {
     return taskFromText(t, t);
   }
 
+  // "ricordamelo" da solo: manca il quando
+  if (/^(?:ricordamel[oaie]|ricordatel[oaie]|ricordami|ricordamene)\s*[!.]*$/i.test(String(rawText || "").trim().replace(/^(?:(?:ehi|ok)\s+)?teto[,\s]+/i, ""))) {
+    return { kind: "clarify", original: t };
+  }
+  // "nota per la lavatrice: X" → nota sul task (prima della lista Note)
+  if ((m = t.match(/^(?:aggiungi\s+(?:una\s+)?)?nota\s+(?:per|su|sul|sulla|al|alla|allo|all'|a)\s*(.+?)\s*:\s*(.+)$/i)) && findTaskFuzzy(stripArticles(m[1]))) {
+    return { kind: "task_note", query: stripArticles(m[1]), note: m[2].trim() };
+  }
   // ─── EXPLICIT PREFIXES (user forces type) ───────────────
   if (/^(?:nota|note|nuova\s+nota|appunt[oi]|appunta(?:mi)?|annota(?:mi)?|prendi\s+nota|memo)\s*(?:che\s+)?[:\s]/i.test(t)) {
     return { kind: "list_add_default", text: t.replace(/^(?:nota|note|nuova\s+nota|appunt[oi]|appunta(?:mi)?|annota(?:mi)?|prendi\s+nota|memo)\s*[:\s]+(?:che\s+)?/i, "").trim() };
@@ -4463,7 +4525,7 @@ function detectIntent(rawText) {
     const ms = parseDuration(m[1]);
     if (ms && ms > 0 && ms < 24 * 3600 * 1000 && !/\s(?:di|per|che)\s/.test(m[1])) return { kind: "timer", ms, label: formatDuration(ms) };
   }
-  if (/^(?:task|compito|cosa\s+da\s+fare|da\s+fare)\s*[:\s]/i.test(t)) {
+  if (/^(?:task|compito|cosa\s+da\s+fare|da\s+fare)\s*[:\s](?!\s*(?:scadut|in\s+ritardo|completat|fatt[ie]\b))/i.test(t)) {
     return { kind: "task", text: t.replace(/^(?:task|compito|cosa\s+da\s+fare|da\s+fare)\s*[:\s]+/i, "").trim() };
   }
   if (/^(?:promemoria|ricorda)\s*[:\s]/i.test(t)) {
@@ -4501,6 +4563,102 @@ function detectIntent(rawText) {
   if ((m = lower.match(/^(?:rimuovi|elimina|cancella)\s+(?:alias)\s+(.+)/i))) {
     return { kind: "alias_remove", alias: stripArticles(m[1]) };
   }
+
+  // ═══ FUNZIONI VOCALI v2 ═══════════════════════════════════
+  const rawL = String(rawText || "").trim().toLowerCase().replace(/[’`]/g, "'")
+    .replace(/^(?:(?:ehi|hey|ok|ciao)\s+)?tet?to[,.\s!?]+/i, "").replace(/[.!?]+$/, "").trim();
+
+  // 1) Comandi sull'ULTIMO task ("ricordamelo tra un'ora", "mettilo urgente", "cancellalo", "l'ho fatto")
+  if ((m = rawL.match(/^(?:ricordamel[oaie]|ricordatel[oaie]|rimandal[oaie]|spostal[oaie]|posticipal[oaie]|rinvial[oaie]|mettimel[oaie])\s+(.+)$/i))) {
+    const dt = parseDateTime(m[1]);
+    if (dt) return { kind: "task_followup", op: "remind", at: dt.timestamp, repeat: dt.repeat || null };
+  }
+  if ((m = rawL.match(/^(?:mettil[oaie]|segnal[oaie]|spostal[oaie]|fall[oaie])\s+(?:come\s+|in\s+|nel(?:la)?\s+|tra\s+(?:gli|i|le)\s+)?(urgent[ei]|lavoro|personal[ei])$/i))) {
+    return { kind: "task_followup", op: "category", category: /^urg/.test(m[1]) ? "urgente" : /^lav/.test(m[1]) ? "lavoro" : "personale" };
+  }
+  if (/^(?:cancellal[oaie]|eliminal[oaie]|toglil[oaie]|levall[oaie]|buttal[oaie](?:\s+via)?)$/i.test(rawL)) return { kind: "task_followup", op: "delete" };
+  if (/^(?:l'?\s*ho\s+(?:già\s+)?(?:fatt[oa]|finit[oa]|completat[oa])|fatto\s+(?:quello|questo)|completal[oa]|segnal[oa]\s+(?:come\s+)?(?:fatt[oa]|finit[oa]))$/i.test(rawL)) return { kind: "task_followup", op: "complete" };
+  if ((m = String(rawText || "").trim().match(/^(?:(?:ehi\s+|ok\s+)?teto[,\s]+)?(?:aggiungici|aggiungigli|scrivici|mettici)\s+(?:(?:una|la|come)\s+)?(?:nota\s*[:,]?\s*)?(.+)$/i))) {
+    return { kind: "task_followup", op: "note", note: m[1].replace(/[.!]+$/, "").trim() };
+  }
+  if ((m = String(rawText || "").trim().match(/^(?:(?:ehi\s+|ok\s+)?teto[,\s]+)?(?:cambial[oa]|rinominal[oa]|chiamal[oa]|correggil[oa])\s+(?:in\s+|con\s+)?(.+)$/i))) {
+    return { kind: "task_followup", op: "rename", text: m[1].replace(/[.!]+$/, "").trim() };
+  }
+
+  // 2) Scaduti / 3) rimanda in blocco / 4) prossima cosa
+  if (/^(?:cosa|che\s+cosa|che)\s+(?:ho\s+dimenticato|mi\s+sono\s+(?:dimenticat[oa]|pers[oa])|è\s+scaduto|ho\s+(?:in\s+)?(?:ritardo|arretrato|lasciato\s+indietro)|è\s+rimasto\s+indietro)|^(?:quali|quanti)\s+(?:task|promemoria|cose)\s+(?:sono\s+)?(?:scadut[ie]|in\s+ritardo)|^(?:task|promemoria|cose)\s+scadut[ie]$|^ho\s+dimenticato\s+qualcosa$/i.test(lower)) {
+    return { kind: "overdue_list" };
+  }
+  if ((m = lower.match(/^(?:rimanda|sposta|posticipa|rinvia)\s+(?:tutt[oie]|tutti\s+i\s+(?:task|promemoria)|gli\s+scaduti|le\s+cose\s+scadute|i\s+task\s+scaduti|quello\s+che\s+(?:non\s+ho\s+fatto|è\s+scaduto)|tutto\s+quello\s+che\s+(?:non\s+ho\s+fatto|è\s+scaduto)|i\s+task\s+di\s+oggi|le\s+cose\s+di\s+oggi)(?:\s+(?:a|ad|al|per))?\s*(.*)$/i))) {
+    const scope = /oggi/.test(m[0]) ? "today" : "overdue";
+    const dt = m[1] ? parseDateTime(m[1]) : null;
+    return { kind: "bulk_reschedule", scope, at: dt ? dt.timestamp : null };
+  }
+  if (/^(?:cosa|che\s+cosa|che)\s+(?:faccio|devo\s+fare)\s+(?:adesso|ora|per\s+prima|subito|come\s+prima\s+cosa)|^(?:qual\s*(?:è|e)\s+)?(?:la\s+)?prossima\s+cosa(?:\s+da\s+fare)?$|^(?:qual\s*(?:è|e)\s+)?(?:il\s+)?prossimo\s+(?:task|impegno|promemoria|appuntamento)$|^cosa\s+c'?\s*è\s+dopo$|^da\s+dove\s+(?:comincio|inizio|parto)$|^(?:su\s+)?cosa\s+mi\s+concentro$/i.test(lower)) {
+    return { kind: "next_up" };
+  }
+
+  // 5) Dove ho messo le cose / parcheggio
+  if ((m = lower.match(/^(?:dov'\s*è|dov'\s*e|dove\s+(?:ho\s+(?:messo|lasciato|parcheggiato|nascosto|posato)|sono|è|stanno|sta|avevo\s+messo))\s*(.*?)\s*[?!.]*$/i))) {
+    const what = /parcheggiato/.test(m[0]) && !m[1] ? "la macchina" : (m[1] || "").trim();
+    if (/^(?:casa(?:\s+mia)?|abito|sei)$/i.test(what)) return { kind: "geofence_show_home" };
+    if (what) return { kind: "place_get", item: what };
+  }
+  if ((m = t.match(/^((?:il|lo|la|l'|i|gli|le|mio|mia|miei|mie)\s*\S.*?)\s+(?:è|sono|sta|stanno)\s+((?:sotto|sopra|dietro|dentro|davanti|accanto|vicino|nel|nella|nello|nei|nelle|sul|sulla|sullo|sui|sulle|in\s+(?:macchina|camera|cucina|bagno|salotto|borsa|tasca|ufficio|garage|cantina)|a\s+casa\s+(?:di|della|del)|da)\b.+)$/i)) && !/^(?:il|la|lo)\s+(?:task|evento|dentista|riunione)/i.test(m[1])) {
+    return { kind: "place_set", item: m[1].trim(), place: m[2].trim() };
+  }
+  if ((m = t.match(/^(?:ho\s+)?parcheggiato\s+(?:la\s+macchina\s+|l'auto\s+|la\s+moto\s+|lo\s+scooter\s+)?((?:in|al|alla|a|nel|nella|sul|sulla|vicino|davanti|dietro|sotto|accanto|fuori)\b.+)$/i))) {
+    return { kind: "place_set", item: /moto|scooter/i.test(m[0]) ? "la moto" : "la macchina", place: m[1].trim() };
+  }
+  if ((m = t.match(/^(?:ho\s+(?:messo|lasciato|nascosto|posato|riposto|conservato)|(?:le|la|il|lo|i|gli)\s+\S+\s+(?:sono|è|stanno|sta)|metto)\s+(.+?)\s+((?:in|nel|nella|nello|nei|nelle|sul|sulla|sullo|sui|sulle|sotto|sopra|dietro|dentro|davanti|accanto|vicino|fra|tra|da|dal|dalla|a\s+casa|in\s+macchina)\b.*)$/i)) && !/^(?:il|la|lo)?\s*(?:lavatrice|lavastoviglie|asciugatrice)/i.test(m[1])) {
+    const ln = Lists.findByName(normalizeListRef(stripArticles(m[2].replace(/^(?:nella|nel|in|sulla|sul)\s+(?:lista\s+(?:della\s+)?)?/i, ""))));
+    if (!ln) return { kind: "place_set", item: m[1].trim(), place: m[2].trim() };
+    const items = splitListItems(m[1]);
+    return { kind: "list_add", items, item: items.join(", "), listName: ln.name };
+  }
+
+  // 6) Modificare un task per nome
+  if ((m = t.match(/^(?:aggiungi|metti|scrivi)\s+(?:una\s+|la\s+)?nota\s+(?:a|al|alla|allo|all'|ai|agli|alle|per|su|sul|sulla)\s*(.+?)\s*[:,]\s*(.+)$/i)) ||
+      (m = t.match(/^nota\s+(?:per|su|sul|sulla|al|alla|a)\s+(.+?)\s*[:,]\s*(.+)$/i))) {
+    return { kind: "task_note", query: stripArticles(m[1]), note: m[2].trim() };
+  }
+  if ((m = t.match(/^(?:rinomina|cambia(?:\s+(?:il\s+)?(?:nome\s+(?:di|del|della|a)|testo\s+(?:di|del|della)|task))?|correggi)\s+(.+?)\s+(?:in|con)\s+(.+)$/i)) && !/\s(?:nella|dalla|della|sulla)\s+(?:lista\s+)?\S+$/i.test(t)) {
+    if (findTaskFuzzy(stripArticles(m[1]))) return { kind: "task_rename", query: stripArticles(m[1]), text: m[2].trim() };
+  }
+  if ((m = lower.match(/^(?:metti|sposta|segna|imposta)\s+(.+?)\s+(?:come\s+|in\s+|nel(?:la)?\s+|tra\s+(?:gli|i|le)\s+)?(urgent[ei]|lavoro|personal[ei])$/i)) ||
+      (m = lower.match(/^(.+?)\s+è\s+(urgente|di\s+lavoro|personale)$/i))) {
+    const q = stripArticles(m[1]);
+    if (findTaskFuzzy(q)) return { kind: "task_category", query: q, category: /urg/.test(m[2]) ? "urgente" : /lav/.test(m[2]) ? "lavoro" : "personale" };
+  }
+
+  // 7) In blocco: pulisci completati / completa tutto
+  if (/^(?:cancella|elimina|togli|pulisci|rimuovi|svuota)\s+(?:(?:tutt[ie]\s+)?(?:i\s+task\s+|le\s+cose\s+|i\s+promemoria\s+|i\s+|le\s+)?(?:completat[ie]|fatt[ie]|finit[ie]))(?:\s+task)?$/i.test(lower)) {
+    return { kind: "delete_done" };
+  }
+  if ((m = lower.match(/^(?:segna|completa|spunta)\s+tutt[oie](?:\s+i\s+task)?(?:\s+(?:di|del|della)\s+(lavoro|urgenti|personali|oggi))?(?:\s+come\s+fatt[oie])?$/i)) ||
+      (m = lower.match(/^(?:ho\s+fatto\s+tutto)(?:\s+(?:di|per)\s+(oggi|lavoro))?$/i))) {
+    const c = m[1] || "";
+    return { kind: "complete_all", category: /lavor/.test(c) ? "lavoro" : /urgent/.test(c) ? "urgente" : /personal/.test(c) ? "personale" : null, todayOnly: /oggi/.test(c) };
+  }
+
+  // 8) Interruttori
+  if (/^(?:silenzio|stai\s+zitt[ao]|non\s+parlare(?:\s+più)?|voce\s+off|disattiva\s+(?:la\s+)?voce|togli\s+(?:la\s+)?voce|spegni\s+(?:la\s+)?voce|muta|modalità\s+silenziosa|parla\s+di\s+meno)$/i.test(lower)) return { kind: "tts_set", on: false };
+  if (/^(?:parla|voce\s+on|attiva\s+(?:la\s+)?voce|riattiva\s+(?:la\s+)?voce|accendi\s+(?:la\s+)?voce|puoi\s+parlare|rispondimi\s+a\s+voce|leggi\s+ad\s+alta\s+voce)$/i.test(lower)) return { kind: "tts_set", on: true };
+  if ((m = lower.match(/^(?:(?:attiva|metti|imposta|passa\s+al?)\s+)?(?:il\s+|la\s+)?(?:tema|modalità)\s+(scur[oa]|chiar[oa]|notte|giorno|automatic[oa]|auto)$|^(dark|light)\s+mode$/i))) {
+    const v = (m[1] || m[2]).toLowerCase();
+    return { kind: "theme_set", mode: /scur|notte|dark/.test(v) ? "dark" : /chiar|giorno|light/.test(v) ? "light" : "auto" };
+  }
+  if ((m = lower.match(/^(?:mostra(?:mi)?|fammi\s+vedere|filtra)\s+(?:solo\s+)?(?:i\s+task\s+|le\s+cose\s+)?(?:gli\s+|i\s+|le\s+|il\s+)?(urgent[ie]|(?:di\s+)?lavoro|personal[ie]|tutt[oie](?:\s+i\s+task)?|completat[ie]|fatt[ie])$/i))) {
+    const v = m[1];
+    if (/complet|fatt/.test(v)) return { kind: "filter_set", filter: "all", showDone: true };
+    return { kind: "filter_set", filter: /urgent/.test(v) ? "urgente" : /lavoro/.test(v) ? "lavoro" : /personal/.test(v) ? "personale" : "all" };
+  }
+  if (/^(?:(?:avvia|fai\s+partire|inizia|comincia|metti|parti\s+con)\s+(?:un\s+|il\s+)?(?:pomodoro|sessione\s+pomodoro)|timer\s+pomodoro|modalità\s+pomodoro|sessione\s+di\s+studio|25\s+minuti\s+di\s+(?:studio|lavoro|concentrazione))$/i.test(lower)) {
+    return { kind: "timer", ms: 25 * 60000, label: "25 minuti 🍅" };
+  }
+
+  // 9) Ripeti
+  if (/^(?:ripeti|ripetere|ripetilo|ripetimelo|puoi\s+ripetere|cosa\s+hai\s+detto|come\s+hai\s+detto|non\s+ho\s+(?:capito|sentito)|scusa\s+non\s+ho\s+capito|eh\??)$/i.test(lower)) return { kind: "repeat_last" };
 
   // ─── BRIEFING (#4) ──────────────────────────────────────
   if (/^(?:com'?\s*è|come\s+(?:è|sarà|va))\s+(?:la\s+)?(?:mia\s+)?giornata\b/i.test(lower)) return { kind: "briefing" };
@@ -4935,7 +5093,14 @@ function detectIntent(rawText) {
       (m = lower.match(/^timer\s+(.+)/i))) {
     const ms = parseDuration(m[1]);
     if (ms && ms > 0 && ms < 24*3600*1000) {
-      return { kind: "timer", ms, label: formatDuration(ms) };
+      // Nome del timer: quello che resta togliendo la durata ("per la pasta 8 minuti" → "pasta")
+      const name = m[1].toLowerCase()
+        .replace(/\b(?:\d+(?:[.,]\d+)?|un|una|uno|mezz'?\s*ora|un\s+quarto\s+d'?\s*ora|quarto|d'?ora|minut[oi]|min|second[oi]|sec|or[ae]|h|e\s+mezz[ao])\b/g, " ")
+        .replace(/\b(?:uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|quindici|venti|trenta|quaranta|quarantacinque|cinquanta|sessanta)\b/g, " ")
+        .replace(/^(?:\s*(?:per|di|da|a|la|il|lo|le|i|gli|del|della|dello)\b)+/g, " ").replace(/\s+/g, " ").trim()
+        .replace(/^(?:per|di|da|la|il|lo)\s+|\s+(?:per|di|da|e)$/g, "").trim();
+      const nice = name && name.length >= 3 && name.length <= 30 && !/^(?:e|di|per)$/.test(name);
+      return { kind: "timer", ms, label: nice ? `${name} (${formatDuration(ms)})` : formatDuration(ms) };
     }
     return { kind: "clarify", original: "timer: durata non chiara (es. \"timer di 5 minuti\")" };
   }
@@ -5262,7 +5427,9 @@ async function processUserCommand(rawText, source = "text") {
   if (GeminiAgent.enabled && (window.tetoAI || GeminiAgent.apiKey) && !state.pendingClarification) {
     let local = null;
     try { if (splitCompositeCommands(original).length === 1) local = detectIntent(original); } catch(e) {}
-    const FAST = new Set(["list_add","list_check","list_remove","list_create","list_read","list_clear","list_count",
+    const FAST = new Set(["list_add","list_check","list_remove","list_create","list_read","list_clear","list_count","list_edit",
+      "task_followup","timer_cancel","timer_status","overdue_list","bulk_reschedule","next_up","place_set","place_get","task_note","task_rename","task_category",
+      "delete_done","complete_all","tts_set","theme_set","filter_set","repeat_last","delete_task","list_delete",
       "timer","math","convert","time_info","date_info","open","close","undo","help","event","event_move",
       "event_delete","event_query","complete_task","summary","weather","coin","dice","random","countdown","focus_enter","focus_exit"]);
     const shortTask = local && local.kind === "task" && String(local.text || "").split(/\s+/).length <= 8;
@@ -5331,7 +5498,10 @@ async function processUserCommand(rawText, source = "text") {
   meta.latencyMs = Math.round(performance.now() - startedAt);
   state.lastIntentMeta = meta;
   recordIntentStats(meta, false, intent?.kind === "fallback");
-  if (reply) showBubble(formatAssistantReply(reply));
+  if (reply) {
+    if (intent?.kind === "repeat_last") showBubble(reply);
+    else { state.lastReply = formatAssistantReply(reply); showBubble(state.lastReply); }
+  }
   return { ok: true, clarified: false, intent, meta, reply };
 }
 
@@ -5379,6 +5549,15 @@ async function executeIntent(intent) {
       return "Non c'è niente da annullare";
     }
     case "task": {
+      const dup = state.tasks.find(x => !x.done && x.text.trim().toLowerCase() === String(intent.text || "").trim().toLowerCase());
+      if (dup) {
+        state.lastTaskRef = dup.id;
+        if (intent.reminderAt && dup.reminderAt !== intent.reminderAt) {
+          await updateTaskInDb(dup.id, { reminderAt: intent.reminderAt, ...(intent.category ? { category: intent.category } : {}) });
+          return `"${dup.text}" c'era già: ho aggiornato il promemoria a ${friendlyWhen(intent.reminderAt)} ⏰`;
+        }
+        return `"${dup.text}" ce l'hai già in lista~ 🍞`;
+      }
       const task = {
         id: genId(), text: capFirst(intent.text), category: intent.category || state.cat,
         note: "", done: false, ts: Date.now(),
@@ -5391,6 +5570,7 @@ async function executeIntent(intent) {
       }
       await addTaskToDb(task);
       state.lastAction = { kind: "task_create", id: task.id, text: task.text };
+      state.lastTaskRef = task.id;
       if (task.repeat) {
         requestNotifPermission();
         return `Ok! "${task.text}" 🔁 ${REPEAT_LABEL[task.repeat]} — la prima volta ${friendlyWhen(task.reminderAt)}`;
@@ -5437,6 +5617,7 @@ async function executeIntent(intent) {
         const [hh, mm] = (intent.time || (tk.reminderAt ? `${new Date(tk.reminderAt).getHours()}:${new Date(tk.reminderAt).getMinutes()}` : "9:00")).split(":").map(Number);
         const at = new Date(y, mo - 1, d, hh, mm, 0, 0).getTime();
         await updateTaskInDb(tk.id, { reminderAt: at });
+        state.lastTaskRef = tk.id;
         return `Ok, "${tk.text}" spostato a ${friendlyWhen(at)} ⏰`;
       }
       const found = await Calendar.moveByTitle(intent.query, intent.dateKey, intent.time);
@@ -5480,11 +5661,13 @@ async function executeIntent(intent) {
         return `Lista "${intent.listName}" creata e "${intent.item}" aggiunto!`;
       }
       const toAdd = (intent.items && intent.items.length ? intent.items : [intent.item]).filter(Boolean);
-      for (const it of toAdd) await Lists.addItem(list.id, it);
+      const added = [], had = [];
+      for (const it of toAdd) ((await Lists.addItem(list.id, it)) === "exists" ? had : added).push(it);
       state.lastAction = { kind: "list_add", listId: list.id, item: intent.item, listName: list.name };
-      return toAdd.length > 1
-        ? `Aggiunti a ${list.emoji} ${list.name}: ${toAdd.join(", ")} ✓`
-        : `"${toAdd[0]}" aggiunto a ${list.emoji} ${list.name}`;
+      const hadMsg = had.length ? `${had.join(", ")} ${had.length === 1 ? "c'era già" : "c'erano già"} (${had.length === 1 ? "rimesso" : "rimessi"} da prendere)` : "";
+      if (!added.length) return `${list.emoji} ${list.name}: ${hadMsg}`;
+      const addMsg = added.length > 1 ? `Aggiunti a ${list.emoji} ${list.name}: ${added.join(", ")} ✓` : `"${added[0]}" aggiunto a ${list.emoji} ${list.name}`;
+      return hadMsg ? `${addMsg} · ${hadMsg}` : addMsg;
     }
     case "list_add_default": {
       // Generic note → goes to default "Note" list (create if missing)
@@ -5697,16 +5880,161 @@ async function executeIntent(intent) {
       }
       const pendingTasks = state.tasks.filter(t => !t.done &&
         (t.reminderAt ? (t.reminderAt >= start && t.reminderAt < end) : intent.when === "oggi"));
-      const totalPending = state.tasks.filter(t => !t.done).length;
-      if (pendingTasks.length === 0 && totalPending === 0) {
-        return `${label} sei libero! Non hai task da fare.`;
+      // Eventi del calendario nello stesso periodo
+      const evs = [];
+      for (let d = start; d < end; d += 86400000) {
+        const dd = new Date(d), k = dateKey(dd.getFullYear(), dd.getMonth(), dd.getDate());
+        for (const e of Calendar.eventsOnDay(k)) {
+          if (intent.when === "stasera" && e.time && e.time < "17:00") continue;
+          evs.push((end - start > 86400000 ? dd.toLocaleDateString("it-IT", { weekday: "short" }) + " " : "") + (e.allDay || !e.time ? "" : e.time + " ") + e.title);
+        }
       }
-      if (pendingTasks.length === 0) {
-        return `${label} non hai task con promemoria. Hai ${totalPending} task in generale.`;
+      const totalPending = state.tasks.filter(t => !t.done).length;
+      const evPart = evs.length ? `📅 ${evs.slice(0, 4).join(", ")}${evs.length > 4 ? ` e altri ${evs.length - 4}` : ""}` : "";
+      if (pendingTasks.length === 0 && !evs.length) {
+        return totalPending ? `${label} niente di programmato. Hai ${totalPending} task in generale.` : `${label} sei liber*! Niente in programma 🍞`;
       }
       const preview = pendingTasks.slice(0,3).map(t=>t.text).join(", ");
       const rest = pendingTasks.length > 3 ? ` e altri ${pendingTasks.length-3}` : "";
-      return `${label} hai ${pendingTasks.length} ${pendingTasks.length===1?"task":"task"}: ${preview}${rest}`;
+      const taskPart = pendingTasks.length ? `✓ ${pendingTasks.length} task: ${preview}${rest}` : "";
+      return `${label}: ${[evPart, taskPart].filter(Boolean).join(" · ")}`;
+    }
+    case "task_followup": {
+      const t = resolveTaskRef();
+      if (!t) return "Di quale task parli? Dimmi il nome, oppure aprilo e riprova~";
+      state.lastTaskRef = t.id;
+      if (intent.op === "remind") {
+        const upd = { reminderAt: intent.at };
+        if (intent.repeat) { const d0 = new Date(intent.at); upd.repeat = intent.repeat; upd.repeatAt = `${String(d0.getHours()).padStart(2,"0")}:${String(d0.getMinutes()).padStart(2,"0")}`; }
+        await updateTaskInDb(t.id, upd);
+        requestNotifPermission();
+        return `Ok, "${t.text}": te lo ricordo ${friendlyWhen(intent.at)}${intent.repeat ? " 🔁 " + REPEAT_LABEL[intent.repeat] : ""} ⏰`;
+      }
+      if (intent.op === "category") { await updateTaskInDb(t.id, { category: intent.category }); return `"${t.text}" ora è ${intent.category === "urgente" ? "⚡ urgente" : intent.category === "lavoro" ? "💼 lavoro" : "🎵 personale"}`; }
+      if (intent.op === "note") { const note = t.note ? t.note + "\n" + intent.note : intent.note; await updateTaskInDb(t.id, { note }); return `Nota aggiunta a "${t.text}" 📝`; }
+      if (intent.op === "rename") { const nt = capFirst(intent.text); await updateTaskInDb(t.id, { text: nt }); return `Rinominato in "${nt}" ✏️`; }
+      if (intent.op === "complete") { const next = await completeTaskSmart(t); return next ? `Fatto! 🔁 prossima volta ${friendlyWhen(next)}` : `Fatto! "${t.text}" completato 🌟`; }
+      if (intent.op === "delete") {
+        state.pendingDangerAction = { kind: "delete_task", payload: { query: t.text, taskId: t.id, confirmed: true } };
+        return `Cancello "${t.text}"? Di' "sì" per confermare.`;
+      }
+      return "Ok";
+    }
+    case "overdue_list": {
+      const od = state.tasks.filter(t => !t.done && t.reminderAt && t.reminderAt < Date.now()).sort((a, b) => a.reminderAt - b.reminderAt);
+      if (!od.length) return "Niente di scaduto, sei in pari~ 🌟";
+      const names = od.slice(0, 4).map(t => t.text).join(", ");
+      return `Hai ${od.length} ${od.length === 1 ? "cosa scaduta" : "cose scadute"}: ${names}${od.length > 4 ? ` e altre ${od.length - 4}` : ""}. Se vuoi dimmi "rimanda tutto a domani"`;
+    }
+    case "bulk_reschedule": {
+      const now = Date.now();
+      const end0 = new Date(); end0.setHours(23, 59, 59, 999);
+      const targets = state.tasks.filter(t => !t.done && t.reminderAt && (intent.scope === "today" ? t.reminderAt <= end0.getTime() : t.reminderAt < now));
+      if (!targets.length) return intent.scope === "today" ? "Oggi non hai promemoria da spostare~" : "Niente di scaduto da rimandare 🌟";
+      let at = intent.at;
+      if (!at) { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); at = d.getTime(); }
+      if (!intent.confirmed) {
+        state.pendingDangerAction = { kind: "bulk_reschedule", payload: { ...intent, at, confirmed: true } };
+        return `Sposto ${targets.length} ${targets.length === 1 ? "promemoria" : "promemoria"} a ${friendlyWhen(at)}? Di' "sì"`;
+      }
+      for (const t of targets) await updateTaskInDb(t.id, { reminderAt: at });
+      return `Fatto! ${targets.length} promemoria spostati a ${friendlyWhen(at)} 🍞`;
+    }
+    case "next_up": {
+      const now = Date.now();
+      const open = state.tasks.filter(t => !t.done);
+      const overdue = open.filter(t => t.reminderAt && t.reminderAt <= now).sort((a, b) => a.reminderAt - b.reminderAt);
+      const urgent = open.filter(t => t.category === "urgente" && !(t.reminderAt && t.reminderAt > now));
+      const upcoming = open.filter(t => t.reminderAt && t.reminderAt > now).sort((a, b) => a.reminderAt - b.reminderAt);
+      const today0 = new Date(); const key = dateKey(today0.getFullYear(), today0.getMonth(), today0.getDate());
+      const hm = `${String(today0.getHours()).padStart(2,"0")}:${String(today0.getMinutes()).padStart(2,"0")}`;
+      const nextEv = Calendar.eventsOnDay(key).find(e => !e.allDay && e.time && e.time >= hm);
+      let pickT = overdue[0] || urgent[0] || null, why = overdue[0] ? "è già scaduto" : urgent[0] ? "è urgente" : "";
+      let msg = pickT ? `Io partirei da "${pickT.text}" (${why})` : "";
+      if (!pickT && upcoming[0]) msg = `Il prossimo è "${upcoming[0].text}" ${friendlyWhen(upcoming[0].reminderAt)}`;
+      if (!msg && open.length) msg = `Potresti fare "${open[open.length - 1].text}"`;
+      if (nextEv) msg += (msg ? ". " : "") + `In calendario: ${nextEv.title} alle ${nextEv.time}`;
+      if (pickT) state.lastTaskRef = pickT.id;
+      return msg || "Non hai niente in sospeso~ goditi il pane 🍞";
+    }
+    case "place_set": {
+      const key = "posto:" + nluTokens(intent.item).join("_");
+      Prefs.set(key, `${intent.item} → ${intent.place}`);
+      return `Ok, mi ricordo che ${placeSentence(intent.item, intent.place)} 📍`;
+    }
+    case "place_get": {
+      const key = "posto:" + nluTokens(intent.item).join("_");
+      let found = Prefs.get(key);
+      if (!found) {
+        const hit = Prefs.list().filter(p => p.key.startsWith("posto:")).map(p => ({ p, sc: fuzzyScore(intent.item, p.value.split("→")[0]) })).sort((a, b) => b.sc - a.sc)[0];
+        if (hit && hit.sc >= 0.6) found = hit.p.value;
+      }
+      if (found) { const [what, where] = found.split("→").map(x => x.trim()); return `${capFirst(placeSentence(what, where))} 📍`; }
+      const ev = Calendar.findByTitle(String(intent.item).toLowerCase());
+      if (ev) return `${ev.event.title}: ${ev.date.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}${ev.event.time ? " alle " + ev.event.time : ""}`;
+      return `Non me l'hai detto~ La prossima volta dimmi "ho messo ${intent.item} nel…" e me lo ricordo 📍`;
+    }
+    case "task_note": {
+      const t = findTaskFuzzy(intent.query);
+      if (!t) return `Non trovo il task "${intent.query}"`;
+      await updateTaskInDb(t.id, { note: t.note ? t.note + "\n" + intent.note : intent.note });
+      state.lastTaskRef = t.id;
+      return `Nota aggiunta a "${t.text}" 📝`;
+    }
+    case "task_rename": {
+      const t = findTaskFuzzy(intent.query);
+      if (!t) return `Non trovo il task "${intent.query}"`;
+      const nt = capFirst(intent.text);
+      await updateTaskInDb(t.id, { text: nt });
+      state.lastTaskRef = t.id;
+      return `"${t.text}" → "${nt}" ✏️`;
+    }
+    case "task_category": {
+      const t = findTaskFuzzy(intent.query);
+      if (!t) return `Non trovo il task "${intent.query}"`;
+      await updateTaskInDb(t.id, { category: intent.category });
+      state.lastTaskRef = t.id;
+      return `"${t.text}" ora è ${intent.category === "urgente" ? "⚡ urgente" : intent.category === "lavoro" ? "💼 lavoro" : "🎵 personale"}`;
+    }
+    case "delete_done": {
+      const done = state.tasks.filter(t => t.done);
+      if (!done.length) return "Non ci sono task completati da togliere~";
+      if (!intent.confirmed) {
+        state.pendingDangerAction = { kind: "delete_done", payload: { confirmed: true } };
+        return `Tolgo ${done.length} task completat${done.length === 1 ? "o" : "i"}? Di' "sì"`;
+      }
+      for (const t of done) await deleteTaskFromDb(t.id);
+      return done.length === 1 ? "Tolto il task completato ✨" : `Tolti ${done.length} task completati ✨`;
+    }
+    case "complete_all": {
+      const end0 = new Date(); end0.setHours(23, 59, 59, 999);
+      const targets = state.tasks.filter(t => !t.done && (!intent.category || t.category === intent.category) && (!intent.todayOnly || (t.reminderAt && t.reminderAt <= end0.getTime())));
+      if (!targets.length) return "Non c'è niente da segnare come fatto~";
+      if (!intent.confirmed) {
+        state.pendingDangerAction = { kind: "complete_all", payload: { ...intent, confirmed: true } };
+        return `Segno come fatti ${targets.length} task${intent.category ? " (" + intent.category + ")" : ""}? Di' "sì"`;
+      }
+      for (const t of targets) await completeTaskSmart(t);
+      return `Wow, ${targets.length} task fatti! 🎉`;
+    }
+    case "tts_set": {
+      if (!!TTS.enabled !== !!intent.on) TTS.toggle();
+      render();
+      return intent.on ? "Voce attivata~ ♪" : "Ok, sto zitta~ (scrivo soltanto) 🤐";
+    }
+    case "theme_set": {
+      Theme.set(intent.mode);
+      render();
+      return intent.mode === "dark" ? "Tema scuro attivato 🌙" : intent.mode === "light" ? "Tema chiaro attivato ☀️" : "Tema automatico~";
+    }
+    case "filter_set": {
+      state.filter = intent.filter;
+      if (intent.showDone) state.showDone = true;
+      render();
+      return intent.showDone ? "Ecco anche i task completati ✓" : intent.filter === "all" ? "Mostro tutti i task" : `Mostro solo ${intent.filter === "urgente" ? "gli urgenti ⚡" : intent.filter === "lavoro" ? "il lavoro 💼" : "i personali 🎵"}`;
+    }
+    case "repeat_last": {
+      return state.lastReply || "Non ho ancora detto niente~ 🍞";
     }
     case "list_remove": {
       intent.listName = normalizeListRef(intent.listName);
@@ -5724,6 +6052,7 @@ async function executeIntent(intent) {
       const q = intent.query.toLowerCase();
       const match = findTaskFuzzy(q);
       if (!match) return `Non trovo nessun task che corrisponda a "${intent.query}"`;
+      state.lastTaskRef = match.id;
       const next = await completeTaskSmart(match);
       if (next) return `Fatto! "${match.text}" 🔁 prossima volta ${friendlyWhen(next)}`;
       return `Fatto! "${match.text}" segnato come completato 🌟`;
@@ -5829,6 +6158,14 @@ async function executeIntent(intent) {
     case "timer": {
       Timers.start(intent.ms, intent.label);
       return `⏰ Timer di ${intent.label} avviato! Ti avviso quando è finito~ ♪`;
+    }
+    case "timer_cancel": {
+      const k = Timers.cancelAll();
+      return k ? (k === 1 ? "Timer annullato ⏹" : `${k} timer annullati ⏹`) : "Non c'è nessun timer attivo~";
+    }
+    case "timer_status": {
+      if (!Timers.active.length) return "Nessun timer attivo~";
+      return Timers.active.map(t => `⏱ ${t.label}: mancano ${Timers.left(t)}`).join(" · ");
     }
     case "coin": {
       return Math.random() < 0.5 ? "🪙 Testa!" : "🪙 Croce!";
@@ -6260,7 +6597,7 @@ const Calendar = {
       this.formCategory = "personal";
       this.formAllDay = false;
       this.formRecurrence = "none";
-      this.formReminderOffset = -1;
+      this.formReminderOffset = 30;
       this.formHour = "09";
       this.formMin = "00";
     }
@@ -6559,6 +6896,11 @@ const Lists = {
   },
   async addItem(listId, text) {
     if (!text.trim()) return;
+    const same = (this.items[listId] || []).find(x => x.text.trim().toLowerCase() === text.trim().toLowerCase());
+    if (same) {                                    // "latte" già presente: se era spuntato torna da prendere
+      if (same.done) await this.toggleItem(listId, same.id, true);
+      return "exists";
+    }
     // U-2: pick the highest existing position so new items go to the bottom of pending
     const arr = this.items[listId] || [];
     const maxPos = arr.reduce((a, x) => Math.max(a, x.position ?? 0), 0);
@@ -6972,7 +7314,9 @@ setInterval(() => {
 // Quando l'app torna in primo piano (Android sospende i timer in background)
 // recupera subito i promemoria scaduti nel frattempo.
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "visible" || !state.ready) return;
+  if (document.visibilityState !== "visible") return;
+  try { Timers.checkDue(); } catch(e) {}
+  if (!state.ready) return;
   const fired = checkDueReminders();
   Calendar.checkReminders();
   if (fired && !Calendar.open_ && !Lists.open_ && !state.showSettings && !state.showHelp) render();
@@ -7574,7 +7918,20 @@ function handleLaunchParams() {
   }
 }
 
+function placeSentence(item, place) {
+  const it = String(item || "").trim();
+  const plural = /^(?:le|i|gli)\s/i.test(it) || (!/^(?:il|lo|la|l'|un|una|uno)\s?/i.test(it) && /[ie]$/i.test(it.split(/\s+/)[0]));
+  return `${it} ${plural ? "sono" : "è"} ${place}`;
+}
+function resolveTaskRef() {
+  const ids = [state.expanded, state.lastTaskRef, state.lastAction && state.lastAction.kind === "task_create" ? state.lastAction.id : null];
+  for (const id of ids) { const t = id && state.tasks.find(x => x.id === id); if (t) return t; }
+  return null;
+}
 function capFirst(s) { s = String(s || "").trim(); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+function localDayKey(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
 function friendlyWhen(ts) {
   const d = new Date(ts), now = new Date();
   const hm = d.toLocaleTimeString("it-IT", { hour:"2-digit", minute:"2-digit" });
@@ -8009,6 +8366,7 @@ ${!window.tetoAI ? `<div class="settings-row" style="flex-direction:column;align
         <button class="send-btn" onclick="addTask()">${ICONS.send}</button>
       </div>
       <div id="smartHint">${smartHintHTML()}</div>
+      ${Timers.html()}
       <div class="cat-row">
         ${CATS.map(c=>`<button class="cat-btn ${s.cat===c.id?"on":"off"}" onclick="state.cat='${c.id}';render()">${c.emoji} ${c.label}</button>`).join("")}
         <div style="flex:1"></div>
@@ -8691,6 +9049,27 @@ function renderHelp() {
       ],
     },
     {
+      title: "✨ Comodità (sull'ultimo task)",
+      commands: [
+        { say: '"Ricordamelo tra un\'ora"', does: "Promemoria sull'ultimo task (o su quello aperto)" },
+        { say: '"Mettilo urgente" / "Cancellalo" / "L\'ho fatto"', does: "Agisce sull'ultimo task" },
+        { say: '"Aggiungici una nota: …" / "Cambialo in …"', does: "Nota o nuovo testo" },
+        { say: '"Cosa ho dimenticato?"', does: "Elenca i promemoria scaduti" },
+        { say: '"Rimanda tutto a domani"', does: "Sposta gli scaduti (chiede conferma)" },
+        { say: '"Cosa faccio adesso?"', does: "Ti dice da dove partire" },
+        { say: '"Ho messo le chiavi nel cassetto"', does: "Si ricorda dove sono le cose" },
+        { say: '"Dove ho messo le chiavi?" / "Dove ho parcheggiato?"', does: "Te lo ridice 📍" },
+        { say: '"Aggiungi una nota alla bolletta: codice 1234"', does: "Nota su un task" },
+        { say: '"Rinomina pane in pane integrale"', does: "Cambia il testo di un task" },
+        { say: '"Metti la lavatrice urgente"', does: "Cambia categoria" },
+        { say: '"Cancella i completati" / "Segna tutto fatto"', does: "Azioni in blocco (con conferma)" },
+        { say: '"Silenzio" / "Parla"', does: "Spegne / accende la voce" },
+        { say: '"Tema scuro" / "Mostra solo gli urgenti"', does: "Aspetto e filtri" },
+        { say: '"Avvia un pomodoro"', does: "Timer da 25 minuti 🍅" },
+        { say: '"Ripeti"', does: "Ripete l\'ultima risposta" },
+      ],
+    },
+    {
       title: "🌟 Funzioni smart",
       commands: [
         { say: '"Pianifica oggi"', does: "Distribuisce le task negli slot liberi" },
@@ -8918,6 +9297,7 @@ auth.onAuthStateChanged(user => {
       Prefs.load();              // load preferences from localStorage
       Prefs.pull();               // sync from Firebase in background
       Geofence.start();           // resume any pending geofence triggers (#3)
+      Timers.restore();           // timer sopravvivono al ricaricamento
       render();
       handleLaunchParams();       // scorciatoie Android, condivisione, azioni dalle notifiche
 
