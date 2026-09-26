@@ -2062,6 +2062,8 @@ const Native = {
     this.P.SR = reg("SpeechRecognition");
     this.P.TTS = reg("TextToSpeech");
     this.P.App = reg("App");
+    this.P.FA = (window.Capacitor.PluginHeaders || []).some(h => h.name === "FirebaseAuthentication") ? reg("FirebaseAuthentication") : null;
+    this.P.W = (window.Capacitor.PluginHeaders || []).some(h => h.name === "TetoWidget") ? reg("TetoWidget") : null;
     document.documentElement.classList.add("native-app");
     const LN = this.P.LN;
     if (LN) {
@@ -2078,8 +2080,9 @@ const Native = {
     }
     if (this.P.App) {
       this.P.App.addListener("backButton", () => this.back());
+      this.P.App.addListener("appUrlOpen", d => this.handleUrl(d && d.url));
       this.P.App.addListener("appStateChange", st => {
-        if (!st.isActive) return;
+        if (!st.isActive) { this.widgetNow(); return; }
         try { Timers.checkDue(); } catch(e) {}
         if (state.ready) { try { checkDueReminders(); Calendar.checkReminders(); } catch(e) {} requestRender(); }
         this.checkExact();
@@ -2088,6 +2091,8 @@ const Native = {
   },
   // Primo avvio dell'app Android: permesso notifiche (Android 13+) e sveglie esatte
   async firstRun() {
+    try { const r = this.P.App && await this.P.App.getLaunchUrl(); if (r && r.url) this.handleUrl(r.url); } catch(e) {}
+    this.widgetSync();
     if (!this.P.LN) return;
     try {
       const r = await this.P.LN.checkPermissions();
@@ -2151,7 +2156,59 @@ const Native = {
     out.sort((a, b) => a.at - b.at);
     return out.slice(0, 200);                      // Android limita gli allarmi per app
   },
+  // ── Widget sulla schermata Home ──
+  // Pulsanti del widget: com.giovacchio.tetotask://widget/voice | new | open
+  handleUrl(url) {
+    const m = /widget\/(voice|new|open)/.exec(url || "");
+    if (!m || m[1] === "open") return;
+    const go = () => {
+      if (!state.ready) { setTimeout(go, 300); return; }
+      if (m[1] === "voice") { if (!state.listening) this.listen(); return; }
+      const inp = document.getElementById("taskInput");
+      if (inp) { inp.focus(); try { inp.scrollIntoView({ block: "center" }); } catch(e) {} }
+    };
+    setTimeout(go, 250);
+  },
+  widgetData() {
+    const now = Date.now(), open = state.tasks.filter(t => !t.done);
+    const late = open.filter(t => t.reminderAt && t.reminderAt <= now).sort((a, b) => a.reminderAt - b.reminderAt);
+    const timed = open.filter(t => t.reminderAt && t.reminderAt > now).map(t => ({ text: t.text, at: t.reminderAt }));
+    try {
+      const d = new Date(), k = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
+      for (const ev of Calendar.eventsOnDay(k)) {
+        if (ev.allDay || !ev.time) continue;
+        const [h, mi] = ev.time.split(":").map(Number);
+        const at = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, mi).getTime();
+        if (at > now) timed.push({ text: "📅 " + ev.title, at });
+      }
+    } catch(e) {}
+    timed.sort((a, b) => a.at - b.at);
+    const rest = open.filter(t => !t.reminderAt).sort((a, b) => (a.category === "urgente" ? 0 : 1) - (b.category === "urgente" ? 0 : 1));
+    const items = [
+      ...late.map(t => ({ text: t.text, at: t.reminderAt })),
+      ...timed,
+      ...rest.map(t => ({ text: t.text, at: 0, when: t.category === "urgente" ? "⚡" : "" })),
+    ].slice(0, 4).map(x => ({ ...x, text: String(x.text || "").slice(0, 80) }));
+    const n = open.length;
+    const subtitle = !n ? "Tutto fatto! 🎉" : `${n} da fare` + (late.length ? ` · ${late.length} in ritardo` : "");
+    return { title: "TetoTask 🍞", subtitle, items };
+  },
+  widgetSync() {
+    if (!this.on || !this.P.W) return;
+    clearTimeout(this._wTimer);
+    this._wTimer = setTimeout(() => this.widgetNow(), 1000);
+  },
+  widgetNow() {
+    if (!this.on || !this.P.W || !state.ready) return;
+    try {
+      const data = this.widgetData(), key = JSON.stringify(data);
+      if (key === this._wLast) return;
+      this._wLast = key;
+      this.P.W.update(data).catch(() => { this._wLast = null; });
+    } catch(e) { console.warn("widget", e); }
+  },
   scheduleSync() {
+    this.widgetSync();
     if (!this.on || !this.P.LN) return;
     clearTimeout(this._syncTimer);
     this._syncTimer = setTimeout(() => this.sync(), 800);
@@ -2289,11 +2346,7 @@ const Account = {
   },
 
   async linkGoogle() {
-    if (Native.on) {
-      // Google blocca l'accesso dentro le app WebView: arriva col login nativo (prossimo passo)
-      await Modal.confirm("L'accesso con Google dentro l'app Android arriva nel prossimo aggiornamento. Per ora i dati dell'app sono salvati sul tuo account anonimo di questo telefono.", { title: "Accesso Google", okLabel: "Ok" });
-      return false;
-    }
+    if (Native.on) return this.linkGoogleNative();
     // Link the current anonymous account with Google so data migrates.
     // If the Google account already exists (user logged in previously on
     // another device) we must sign into THAT account instead of linking.
@@ -2355,6 +2408,51 @@ const Account = {
     }
   },
 
+  // App Android: scelta dell'account Google nativa (Google blocca il login dentro le WebView),
+  // poi il token passa all'SDK web di Firebase → stessi dati del sito.
+  async linkGoogleNative() {
+    const FA = Native.P.FA;
+    if (!FA) { showBubble("Accesso Google non disponibile in questa versione dell'app"); return false; }
+    try {
+      showBubble("Scegli il tuo account Google~ ☁️", { silent: true });
+      const res = await FA.signInWithGoogle();
+      const idToken = res && res.credential && res.credential.idToken;
+      const accessToken = res && res.credential && res.credential.accessToken;
+      if (!idToken) throw Object.assign(new Error("Nessun token da Google"), { code: "auth/no-token" });
+      const cred = firebase.auth.GoogleAuthProvider.credential(idToken, accessToken || null);
+      const cur = auth.currentUser;
+      let user;
+      if (cur && cur.isAnonymous) {
+        try { user = (await cur.linkWithCredential(cred)).user; }
+        catch (err) {
+          if (err.code === "auth/credential-already-in-use" || err.code === "auth/email-already-in-use") {
+            // L'account Google esiste già (lo usi sul sito): entro in quello e carico i suoi dati
+            user = (await auth.signInWithCredential(err.credential || cred)).user;
+          } else throw err;
+        }
+      } else {
+        user = (await auth.signInWithCredential(cred)).user;
+      }
+      this.update(user);
+      state.uid = user.uid;
+      listenToTasks();
+      Lists.resubscribe();
+      Calendar.resubscribe();
+      Prefs.pull();
+      showBubble(`Accesso fatto${user.displayName ? ", " + user.displayName.split(" ")[0] : ""}! Ora vedi gli stessi dati del sito~ ☁️`);
+      render();
+      return true;
+    } catch (err) {
+      const msg = String((err && (err.message || err.code)) || "");
+      if (/cancel|annull|12501|16:/i.test(msg)) { showBubble("Accesso annullato~", { silent: true }); return false; }
+      console.error("Google native sign-in failed:", err);
+      if (/10:|DEVELOPER_ERROR|no credentials|No credential/i.test(msg)) {
+        showBubble("Google non riconosce l'app: controlla lo SHA-1 in Firebase (Impostazioni progetto → app Android)");
+      } else this._reportAuthError(err);
+      return false;
+    }
+  },
+
   _reportAuthError(err) {
     const code = err?.code || "unknown";
     const map = {
@@ -2411,6 +2509,7 @@ const Account = {
       clearTimeout(proactiveTimer);
       Timers.cancelAll();
       await auth.signOut();
+      if (Native.on && Native.P.FA) { try { await Native.P.FA.signOut(); } catch(e) {} }
       // Auto-login as anonymous so app keeps working
       const cred = await auth.signInAnonymously();
       this.update(cred.user);

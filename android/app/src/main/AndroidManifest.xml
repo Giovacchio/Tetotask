@@ -23,7 +23,28 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Link dal widget: com.giovacchio.tetotask://widget/voice | new | open -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.giovacchio.tetotask" />
+            </intent-filter>
+
         </activity>
+
+        <!-- Widget della schermata home -->
+        <receiver
+            android:name=".TetoWidgetProvider"
+            android:exported="false"
+            android:label="TetoTask">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_teto_info" />
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"

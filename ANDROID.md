@@ -30,8 +30,20 @@ non serve installare Node o lanciare comandi.
 2. Fai **doppio clic su `aggiorna-app.bat`**.
 3. In Android Studio premi **Run ▶**.
 
-## Limiti di questa prima versione
-- **Accesso Google**: nell'app arriva nel prossimo passo, col login nativo.
-  Fino ad allora l'app usa un account anonimo suo, quindi non vede i dati della versione web.
-- Il **"Ehy Teto"** sempre in ascolto non c'è nell'app. Il microfono funziona con il tasto 🎤.
-- **Widget**: prossimo passo.
+## Widget sulla schermata Home 🍞
+- Tieni premuto su uno spazio vuoto della Home → **Widget** → **TetoTask** → trascinalo dove vuoi.
+- Mostra fino a 4 cose da fare: prima quelle **in ritardo** (in rosso), poi i prossimi promemoria ed eventi di oggi, poi gli urgenti ⚡.
+- **🎤** apre l'app e ascolta subito. **＋** apre l'app pronta per scrivere. Il tocco sul resto apre l'app.
+- Si aggiorna ogni volta che cambi qualcosa nell'app. Gli orari ("scaduto 5m fa", "domani 9:00") li calcola il telefono, quindi restano giusti anche ad app chiusa.
+
+## Accesso con Google
+1. Firebase Console → Impostazioni progetto → **Aggiungi app Android**: pacchetto `com.giovacchio.tetotask` + **SHA-1**
+   (in Android Studio: Terminal → `.\gradlew signingReport`, riga `SHA1` della variante `debug`).
+2. Scarica **google-services.json** e mettilo in `Tetotask\android\app\`.
+3. Authentication → Metodo di accesso: **Google** attivo.
+4. Nell'app: Impostazioni → accedi con Google. I dati anonimi dell'app vengono uniti al tuo account.
+- Se Teto dice "manca l'impronta SHA-1": controlla il punto 1 e riscarica il json.
+- Se cambi PC o firmi la versione "release", aggiungi anche quella SHA-1 in Firebase.
+
+## Limiti
+- Il **"Ehy Teto"** sempre in ascolto non c'è nell'app. Il microfono funziona con il tasto 🎤 (anche dal widget).

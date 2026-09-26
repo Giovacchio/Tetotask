@@ -4,4 +4,5 @@
     <string name="title_activity_main">TetoTask</string>
     <string name="package_name">com.giovacchio.tetotask</string>
     <string name="custom_url_scheme">com.giovacchio.tetotask</string>
+    <string name="widget_description">I prossimi task e il microfono di Teto</string>
 </resources>
