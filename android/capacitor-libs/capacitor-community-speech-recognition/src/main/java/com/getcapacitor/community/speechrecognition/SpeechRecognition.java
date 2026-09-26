@@ -167,7 +167,9 @@ public class SpeechRecognition extends Plugin implements Constants {
         intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, maxResults);
         intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, bridge.getActivity().getPackageName());
         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, partialResults);
-        intent.putExtra("android.speech.extra.DICTATION_MODE", partialResults);
+        // TetoTask: niente DICTATION_MODE (su alcuni telefoni l'ascolto non si chiude o si chiude a caso)
+        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500);
+        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500);
 
         if (prompt != null) {
             intent.putExtra(RecognizerIntent.EXTRA_PROMPT, prompt);
@@ -239,7 +241,12 @@ public class SpeechRecognition extends Plugin implements Constants {
         }
 
         @Override
-        public void onReadyForSpeech(Bundle params) {}
+        public void onReadyForSpeech(Bundle params) {
+            // TetoTask: avvisa la pagina che il microfono e' pronto
+            JSObject ret = new JSObject();
+            ret.put("status", "ready");
+            SpeechRecognition.this.notifyListeners(LISTENING_EVENT, ret);
+        }
 
         @Override
         public void onBeginningOfSpeech() {
@@ -283,7 +290,13 @@ public class SpeechRecognition extends Plugin implements Constants {
             SpeechRecognition.this.stopListening();
             String errorMssg = getErrorText(error);
 
-            if (this.call != null) {
+            // TetoTask: con partialResults la chiamata e' gia' risolta, quindi l'errore va mandato come evento
+            JSObject ret = new JSObject();
+            ret.put("status", "error");
+            ret.put("code", error);
+            ret.put("message", errorMssg);
+            SpeechRecognition.this.notifyListeners(LISTENING_EVENT, ret);
+            if (this.call != null && !this.partialResults) {
                 call.reject(errorMssg);
             }
         }
@@ -301,7 +314,11 @@ public class SpeechRecognition extends Plugin implements Constants {
                     } else {
                         JSObject ret = new JSObject();
                         ret.put("matches", jsArray);
+                        ret.put("final", true);
                         notifyListeners("partialResults", ret);
+                        JSObject fin = new JSObject();
+                        fin.put("status", "final");
+                        SpeechRecognition.this.notifyListeners(LISTENING_EVENT, fin);
                     }
                 }
             } catch (Exception ex) {

@@ -2244,46 +2244,82 @@ const Native = {
     } catch(e) { return false; }
   },
   // ── Microfono (riconoscimento vocale di Android) ──
-  async listen() {
+  async listen(retry) {
     const SR = this.P.SR;
     if (!SR) { showBubble(TETO.noVoice); return; }
-    if (state.listening) { try { await SR.stop(); } catch(e) {} this._finish(true); return; }
-    try {
-      let p = await SR.checkPermissions();
-      if (p.speechRecognition !== "granted") p = await SR.requestPermissions();
-      if (p.speechRecognition !== "granted") { showBubble("Mi serve il permesso del microfono: consentilo nelle impostazioni dell'app 🎤", { silent: true }); return; }
-    } catch(e) {}
-    TTS.stop();
-    this._last = ""; this._done = false;
-    state.listening = true; render();
-    showBubble(TETO.listen, { silent: true }); haptic(15);
+    if (state.listening && !retry) { try { await SR.stop(); } catch(e) {} this._finish(true); return; }
+    if (!retry) {
+      try {
+        let p = await SR.checkPermissions();
+        if (p.speechRecognition !== "granted") p = await SR.requestPermissions();
+        if (p.speechRecognition !== "granted") { showBubble("Mi serve il permesso del microfono: consentilo nelle impostazioni dell'app 🎤", { silent: true }); return; }
+      } catch(e) {}
+      // Se Teto stava parlando, aspetta che smetta: altrimenti Android non apre il microfono
+      this.stopSpeak();
+      await new Promise(r => setTimeout(r, 180));
+    }
+    if (!retry) this._retried = false;
+    const sid = this._sid = (this._sid || 0) + 1;       // ignora eventi di sessioni vecchie
+    this._last = ""; this._done = false; this._stopped = false; this._ready = false;
+    if (!state.listening) { state.listening = true; render(); }
+    showBubble(retry ? "Riprovo~ parla pure 🎤" : TETO.listen, { silent: true });
     try { await SR.removeAllListeners(); } catch(e) {}
     SR.addListener("partialResults", d => {
+      if (sid !== this._sid || this._done) return;
       const txt = (d && d.matches && d.matches[0]) || "";
-      if (!txt) return;
-      this._last = txt;
-      const inp = document.getElementById("taskInput"); if (inp) inp.value = txt;
-      if (this._stopped) { clearTimeout(this._endT); this._endT = setTimeout(() => this._finish(false), 350); }
+      if (txt) {
+        this._last = txt;
+        const inp = document.getElementById("taskInput"); if (inp) inp.value = txt;
+      }
+      if (d && d.final) { this._finish(false); return; }
+      if (this._stopped) { clearTimeout(this._endT); this._endT = setTimeout(() => this._finish(false), 1200); }
     });
     SR.addListener("listeningState", d => {
-      if (d && d.status === "stopped") { this._stopped = true; clearTimeout(this._endT); this._endT = setTimeout(() => this._finish(false), 900); }
+      if (sid !== this._sid || this._done || !d) return;
+      if (d.status === "ready") { this._ready = true; haptic(15); return; }
+      if (d.status === "final") { clearTimeout(this._endT); this._endT = setTimeout(() => this._finish(false), 150); return; }
+      if (d.status === "stopped") {
+        // fine del parlato: il risultato definitivo arriva poco dopo (fino a ~2 s su rete lenta)
+        this._stopped = true; clearTimeout(this._endT); this._endT = setTimeout(() => this._finish(false), 2500);
+        return;
+      }
+      if (d.status === "error") this._onError(Number(d.code), sid);
     });
-    this._stopped = false;
-    clearTimeout(this._guard); this._guard = setTimeout(() => this._finish(false), 15000);
+    clearTimeout(this._guard); this._guard = setTimeout(() => { if (sid === this._sid) this._finish(false); }, 20000);
     try {
       await SR.start({ language: "it-IT", maxResults: 1, partialResults: true, popup: false });
     } catch(e) {
-      this._finish(true);
-      showBubble("Non ho sentito niente~ riprova quando vuoi 🎤", { silent: true });
+      if (sid === this._sid) this._onError(-1, sid);
     }
+  },
+  // Codici di Android: 5 client, 8 occupato, 7 nessuna parola, 6 silenzio, 2/1/4 rete, 3 audio, 9 permesso
+  _onError(code, sid) {
+    if (sid !== this._sid || this._done) return;
+    if (this._last) { this._finish(false); return; }        // qualcosa l'ho sentito: usalo
+    if ((code === 5 || code === 8 || code === 11 || code === -1) && !this._retried) {
+      // riconoscitore ancora occupato dalla volta prima: riprova una volta da solo
+      this._retried = true;
+      try { this.P.SR.stop(); } catch(e) {}
+      setTimeout(() => { if (sid === this._sid && !this._done) this.listen(true); }, 400);
+      return;
+    }
+    const msg = code === 6 || code === 7 ? "Non ho sentito niente~ tocca 🎤 e parla subito dopo la vibrazione"
+      : code === 1 || code === 2 || code === 4 ? "Il riconoscimento vocale ha bisogno di internet 📶 riprova tra poco"
+      : code === 3 ? "Il microfono è occupato da un'altra app 🎤"
+      : code === 9 ? "Mi serve il permesso del microfono: consentilo nelle impostazioni dell'app 🎤"
+      : "Il microfono ha fatto i capricci~ riprova 🎤";
+    this._finish(true);
+    showBubble(msg, { silent: true });
   },
   async _finish(cancelled) {
     if (this._done) return; this._done = true;
+    this._retried = false;
     clearTimeout(this._guard); clearTimeout(this._endT);
     state.listening = false;
     const text = (this._last || "").trim();
+    try { this.P.SR.stop().catch(() => {}); } catch(e) {}
     render();
-    if (cancelled || !text) { if (!cancelled) showBubble("Non ho sentito niente~ riprova quando vuoi 🎤", { silent: true }); return; }
+    if (cancelled || !text) { if (!cancelled) showBubble("Non ho sentito niente~ tocca 🎤 e parla subito dopo la vibrazione", { silent: true }); return; }
     haptic(10);
     try { await processUserCommand(text, "voice"); }
     catch(err) { state.input = text; render(); }
